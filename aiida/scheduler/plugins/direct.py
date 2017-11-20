@@ -17,6 +17,34 @@ from aiida.scheduler import SchedulerError, SchedulerParsingError
 from aiida.scheduler.datastructures import (
     JobInfo, job_states, MachineInfo, NodeNumberJobResource)
 
+## From the ps man page on Mac OS X 10.12
+#     state     The state is given by a sequence of characters, for example,
+#               ``RWNA''.  The first character indicates the run state of the
+#               process:
+#
+#               I       Marks a process that is idle (sleeping for longer than
+#                       about 20 seconds).
+#               R       Marks a runnable process.
+#               S       Marks a process that is sleeping for less than about 20
+#                       seconds.
+#               T       Marks a stopped process.
+#               U       Marks a process in uninterruptible wait.
+#               Z       Marks a dead process (a ``zombie'').
+
+# From the man page of ps on Ubuntu 14.04:
+#       Here are the different values that the s, stat and state output
+#       specifiers (header "STAT" or "S") will display to describe the state of
+#       a process:
+#
+#               D    uninterruptible sleep (usually IO)
+#               R    running or runnable (on run queue)
+#               S    interruptible sleep (waiting for an event to complete)
+#               T    stopped, either by a job control signal or because it is
+#                    being traced
+#               W    paging (not valid since the 2.6.xx kernel)
+#               X    dead (should never be seen)
+#               Z    defunct ("zombie") process, terminated but not reaped by
+#                    its parent
 
 _map_status_ps = {
     'D': job_states.RUNNING, # uninterruptible sleep
@@ -88,6 +116,29 @@ class DirectScheduler(aiida.scheduler.Scheduler):
         lines = []
         empty_line = ""
 
+        # Redirecting script output on the correct files
+        # Should be one of the first commands
+        if job_tmpl.sched_output_path:
+            lines.append("exec > {}".format(job_tmpl.sched_output_path))
+
+        if job_tmpl.sched_join_files:
+            # TODO: manual says:
+            #By  default both standard output and standard error are directed
+            #to a file of the name "slurm-%j.out", where the "%j" is replaced
+            #with  the  job  allocation  number. 
+            # See that this automatic redirection works also if 
+            # I specify a different --output file
+            if job_tmpl.sched_error_path:
+                self.logger.info(
+                    "sched_join_files is True, but sched_error_path is set; "
+                    " ignoring sched_error_path")
+        else:
+            if job_tmpl.sched_error_path:
+                lines.append("exec 2> {}".format(job_tmpl.sched_error_path))
+            else:
+                # To avoid automatic join of files
+                lines.append("exec 2>&1")
+
         if job_tmpl.max_memory_kb:
             try:
                 virtualMemoryKb = int(job_tmpl.max_memory_kb)
@@ -145,13 +196,15 @@ class DirectScheduler(aiida.scheduler.Scheduler):
     def _get_submit_command(self, submit_script):
         """
         Return the string to execute to submit a given script.
+    
+        .. note:: One needs to redirect stdout and stderr to /dev/null
+           otherwise the daemon remains hanging for the script to run
 
-        Args:
-            submit_script: the path of the submit script relative to the working
-                directory.
-                IMPORTANT: submit_script should be already escaped.
+        :param submit_script: the path of the submit script relative to the working
+            directory.
+            IMPORTANT: submit_script should be already escaped.
         """
-        submit_command = 'bash -e {} & echo $!'.format(submit_script)
+        submit_command = 'bash -e {} > /dev/null 2>&1 & echo $!'.format(submit_script)
 
         self.logger.info("submitting with: " + submit_command)
 
@@ -197,22 +250,28 @@ class DirectScheduler(aiida.scheduler.Scheduler):
                     "not enough fields in line '{}'".format(line))
 
             try:
-                job_state_string = job[1]
+                job_state_string = job[1][0] # I just check the first character
+            except IndexError:
+                self.logger.debug("No 'job_state' field for job id {}".format(
+                    this_job.job_id))
+                this_job.job_state = job_states.UNDETERMINED
+            else:
                 try:
+<<<<<<< HEAD
                     if job_state_string[0] == 'S':
                         this_job.job_state = job_states.SUSPENDED
                     else:
                         this_job.job_state = \
                             _map_status_ps[job_state_string[:1]]
+=======
+                    this_job.job_state = \
+                        _map_status_ps[job_state_string]
+>>>>>>> upstream/develop
                 except KeyError:
                     self.logger.warning("Unrecognized job_state '{}' for job "
                                         "id {}".format(job_state_string,
                                                        this_job.job_id))
                     this_job.job_state = job_states.UNDETERMINED
-            except KeyError:
-                self.logger.debug("No 'job_state' field for job id {}".format(
-                    this_job.job_id))
-                this_job.job_state = job_states.UNDETERMINED
 
             try:
                 # I strip the part after the @: is this always ok?
