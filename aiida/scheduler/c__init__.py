@@ -65,9 +65,9 @@ class Scheduler(object):
 
     @classmethod
     def get_valid_schedulers(cls):
-        from aiida.common.pluginloader import all_plugins
+        from aiida.common.pluginloader import existing_plugins
 
-        return all_plugins('schedulers')
+        return existing_plugins(Scheduler, "aiida.scheduler.plugins")
 
     @classmethod
     def get_short_doc(cls):

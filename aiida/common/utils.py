@@ -162,8 +162,25 @@ def escape_for_bash(str_to_escape):
     string found below.
     """
     escaped_quotes = str_to_escape.replace("'", """'"'"'""")
+    #return '{}'.format(escaped_quotes)
+    #if escaped_quotes.startswith('$'):
+    #        return '{}'.format(escaped_quotes)
+    #if '$' in escaped_quotes:# variable
+    #    return '{}'.format(escaped_quotes)
     return "'{}'".format(escaped_quotes)
 
+def escape_for_bashscript(str_to_escape):
+    """
+    same as escape_for_bash, only alows for variables to be used.
+    """
+
+    escaped_quotes = str_to_escape.replace("'", """'"'"'""")
+    #return '{}'.format(escaped_quotes)
+    if escaped_quotes.startswith('$'):
+        return '{}'.format(escaped_quotes)
+    #if '$' in escaped_quotes:# variable
+    #    return '{}'.format(escaped_quotes)
+    return "'{}'".format(escaped_quotes)
 
 def get_suggestion(provided_string, allowed_strings):
     """

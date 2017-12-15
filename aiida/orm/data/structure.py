@@ -605,7 +605,7 @@ def symop_ortho_from_fract(cell):
 
     a, b, c, alpha, beta, gamma = cell
     alpha, beta, gamma = map(lambda x: math.pi * x / 180,
-                             alpha, beta, gamma)
+                             [alpha, beta, gamma])
     ca, cb, cg = map(math.cos, [alpha, beta, gamma])
     sg = math.sin(gamma)
 

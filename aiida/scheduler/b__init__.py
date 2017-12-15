@@ -65,9 +65,9 @@ class Scheduler(object):
 
     @classmethod
     def get_valid_schedulers(cls):
-        from aiida.common.pluginloader import all_plugins
+        from aiida.common.pluginloader import existing_plugins
 
-        return all_plugins('schedulers')
+        return existing_plugins(Scheduler, "aiida.scheduler.plugins")
 
     @classmethod
     def get_short_doc(cls):
@@ -231,7 +231,7 @@ class Scheduler(object):
         for code_info in codes_info:
             command_to_exec_list = []
             for arg in code_info.cmdline_params:
-                command_to_exec_list.append(escape_for_bashscript(arg))
+                command_to_exec_list.append(escape_for_bash(arg))
             command_to_exec = " ".join(command_to_exec_list)
 
             stdin_str = "< {}".format(

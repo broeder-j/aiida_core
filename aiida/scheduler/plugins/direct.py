@@ -56,8 +56,7 @@ _map_status_ps = {
     'W': job_states.RUNNING, # paging
     'X': job_states.DONE, # dead
     'Z': job_states.DONE, # Zombie, dead process
-}
-
+    }
 
 class DirectJobResource(NodeNumberJobResource):
     pass
@@ -257,16 +256,13 @@ class DirectScheduler(aiida.scheduler.Scheduler):
                 this_job.job_state = job_states.UNDETERMINED
             else:
                 try:
-<<<<<<< HEAD
-                    if job_state_string[0] == 'S':
-                        this_job.job_state = job_states.SUSPENDED
-                    else:
-                        this_job.job_state = \
-                            _map_status_ps[job_state_string[:1]]
-=======
+                    #if job_state_string[0] == 'S':
+                    #    this_job.job_state = job_states.SUSPENDED
+                    #else:
+                    #    this_job.job_state = \
+                    #        _map_status_ps[job_state_string[:1]]
                     this_job.job_state = \
                         _map_status_ps[job_state_string]
->>>>>>> upstream/develop
                 except KeyError:
                     self.logger.warning("Unrecognized job_state '{}' for job "
                                         "id {}".format(job_state_string,

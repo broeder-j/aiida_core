@@ -14,7 +14,6 @@ from aiida.work import util
 from aiida.work.class_loader import ClassLoader
 from aiida.work.legacy.job_process import JobProcess
 
-
 class TestJobProcess(AiidaTestCase):
     def setUp(self):
         super(TestJobProcess, self).setUp()

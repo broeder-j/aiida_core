@@ -14,7 +14,7 @@ from aiida.cmdline.commands import work, verdi
 from aiida.cmdline.baseclass import VerdiCommandWithSubcommands
 
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
-LIST_CMDLINE_PROJECT_CHOICES = ['id', 'ctime', 'label', 'uuid', 'descr', 'mtime', 'state', 'sealed']
+LIST_CMDLINE_PROJECT_CHOICES = ['id', 'ctime', 'plabel', 'uuid', 'label', 'descr', 'mtime', 'state', 'sealed']
 
 LOG_LEVEL_MAPPING = {
     levelname: i for levelname, i in [
@@ -78,15 +78,16 @@ def do_list(past_days, all_states, limit, project):
     _FINISHED_ATTRIBUTE_KEY = 'attributes.{}'.format(WorkCalculation.FINISHED_KEY)
 
     if not project:
-        project = ('id', 'ctime', 'label', 'state', 'sealed')  # default projections
+        project = ('id', 'ctime', 'plabel', 'label', 'state', 'sealed')  # default projections
 
 
     # Mapping of projections to list table headers.
     hmap_dict = {
-        'id': 'PID',
-        'ctime': 'Creation time',
-        'label': 'Process Label',
-        'uuid': 'UUID',
+        'id': "PID",
+        'ctime': "Creation time",
+        'plabel': "Process Label",
+        'uuid': "UUID",
+        'label': 'Label',
         'descr': 'Description',
         'mtime': 'Modification time'
     }
@@ -99,12 +100,13 @@ def do_list(past_days, all_states, limit, project):
 
     # Mapping of querybuilder keys that differ from projections.
     pmap_dict = {
-        'label': 'attributes._process_label',
+        'plabel': 'attributes._process_label',
         'sealed': _SEALED_ATTRIBUTE_KEY,
         'failed': _FAILED_ATTRIBUTE_KEY,
         'aborted': _ABORTED_ATTRIBUTE_KEY,
         'finished': _FINISHED_ATTRIBUTE_KEY,
         'descr': 'description',
+        'label': 'label'
     }
 
     def map_projection(p):
@@ -148,8 +150,8 @@ def do_list(past_days, all_states, limit, project):
 
     for res in _build_query(limit=limit, projections=mapped_projections, past_days=past_days, order_by={'ctime': 'desc'}):
         calc = res['calculation']
-        if calc[_SEALED_ATTRIBUTE_KEY] and not all_states:
-            continue
+        #if calc[_SEALED_ATTRIBUTE_KEY] and not all_states:
+        #    continue
         table.append(list(map(lambda p: map_result(p, calc), project)))
 
     # Since we sorted by descending creation time, we revert the list to print the most
