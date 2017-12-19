@@ -272,12 +272,15 @@ def submit_jobs():
 
 
     qmanager = QueryFactory()()
+    
+    
     # I create a unique set of pairs (computer, aiidauser)
     computers_users_to_check = qmanager.query_jobcalculations_by_computer_user_state(
             state=calc_states.TOSUBMIT,
             only_computer_user_pairs=True,
             only_enabled=True
         )
+
 
     for computer, aiidauser in computers_users_to_check:
 
@@ -329,6 +332,22 @@ def submit_jobs():
             # Continue with next computer
             continue
 
+'''
+    # hardcodes hack from jens for pgi:
+    computers_users_running_jobs = qmanager.query_jobcalculations_by_computer_user_state(
+            state=calc_states.RUNNING,
+            only_computer_user_pairs=True,
+            only_enabled=True
+        )
+    jobtotal_running = 99
+    
+    for compt
+
+        calcs_running = qmanager.query_jobcalculations_by_computer_user_state(
+                        state=calc_states.RUNNING,
+                        computer=computer, user=aiidauser
+                    )
+'''
 
 def submit_jobs_with_authinfo(authinfo):
     """
@@ -350,12 +369,24 @@ def submit_jobs_with_authinfo(authinfo):
         authinfo.aiidauser.email, authinfo.dbcomputer.name))
 
     qmanager = QueryFactory()()
+    
+    # hardcodes hack from jens for pgi:
+    jobtotal_running = 99
+
+    calcs_queued = qmanager.query_jobcalculations_by_computer_user_state(
+            state=calc_states.WITHSCHEDULER,
+            computer=authinfo.dbcomputer,
+            user=authinfo.aiidauser)
+        
+    space_left = jobtotal_running-len(calcs_queued)
+    if space_left <= 0:
+        space_left = 0
+    
     # I create a unique set of pairs (computer, aiidauser)
     calcs_to_inquire = qmanager.query_jobcalculations_by_computer_user_state(
             state=calc_states.TOSUBMIT,
         computer=authinfo.dbcomputer,
-        user=authinfo.aiidauser)
-
+        user=authinfo.aiidauser, limit=space_left)
 
     # I avoid to open an ssh connection if there are
     # no calcs with state WITHSCHEDULER
