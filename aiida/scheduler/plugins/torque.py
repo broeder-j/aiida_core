@@ -14,7 +14,7 @@ This has been tested on Torque v.2.4.16 (from Ubuntu).
 from __future__ import division
 from aiida.scheduler import Scheduler
 from .pbsbaseclasses import PbsBaseClass
-
+from aiida.scheduler.datastructures import JobInfo, job_states
 ## These are instead the states from PBS/Torque v.2.4.16 (from Ubuntu)
 #C -  Job is completed after having run [different from above, but not clashing]
 #E -  Job is exiting after having run. [same as above]
@@ -97,3 +97,33 @@ class TorqueScheduler(PbsBaseClass, Scheduler):
         return_lines.append("#PBS -l {}".format(select_string))
         return return_lines
 
+
+    def getJobs(self, jobs=None, user=None, as_dict=False):
+        """
+        Overrides original method from BaseScheduler in order to list
+        missing processes as DONE.
+        """
+        job_stats = super(TorqueScheduler, self).getJobs(jobs=jobs,
+                                                         user=user,
+                                                         as_dict=as_dict)
+
+        found_jobs = []
+        # Get the list of known jobs
+        if as_dict:
+            found_jobs = job_stats.keys()
+        else:
+            found_jobs = [j.job_id for j in job_stats]
+        # Now check if there are any the user requested but were not found
+        not_found_jobs = list(set(jobs) - set(found_jobs)) if jobs else []
+
+        for job_id in not_found_jobs:
+            job = JobInfo()
+            job.job_id = job_id
+            job.job_state = job_states.DONE
+            # Owner and wallclock time is unknown
+            if as_dict:
+                job_stats[job_id] = job
+            else:
+                job_stats.append(job)
+
+        return job_stats
