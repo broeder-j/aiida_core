@@ -341,6 +341,38 @@ class PbsBaseClass(object):
 
         return submit_command
 
+
+    def getJobs(self, jobs=None, user=None, as_dict=False):
+        """
+        Overrides original method from BaseScheduler in order to list
+        missing processes as DONE.
+        """
+        job_stats = super(PbsBaseClass, self).getJobs(jobs=jobs,
+                                                         user=user,
+                                                         as_dict=as_dict)
+
+        found_jobs = []
+        # Get the list of known jobs
+        if as_dict:
+            found_jobs = job_stats.keys()
+        else:
+            found_jobs = [j.job_id for j in job_stats]
+        # Now check if there are any the user requested but were not found
+        not_found_jobs = list(set(jobs) - set(found_jobs)) if jobs else []
+
+        for job_id in not_found_jobs:
+            job = JobInfo()
+            job.job_id = job_id
+            job.job_state = job_states.DONE
+            # Owner and wallclock time is unknown
+            if as_dict:
+                job_stats[job_id] = job
+            else:
+                job_stats.append(job)
+
+        return job_stats
+
+
     def _parse_joblist_output(self, retval, stdout, stderr):
         """
         Parse the queue output string, as returned by executing the
