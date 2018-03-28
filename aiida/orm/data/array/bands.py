@@ -448,9 +448,11 @@ class BandsData(KpointsData):
         if len(stored_bands.shape) == 2:
             bands = stored_bands
             band_type_idx = numpy.array([0]*stored_bands.shape[1])
+            two_band_types = False
         elif len(stored_bands.shape) == 3:
             bands = numpy.concatenate([_ for _ in stored_bands], axis=1)
             band_type_idx = numpy.array([0] * stored_bands.shape[2] + [1] * stored_bands.shape[2])
+            two_band_types = True
         else:
             raise ValueError("Unexpected shape of bands")
 
@@ -504,12 +506,18 @@ class BandsData(KpointsData):
 
             if len(labels) > 1:
                 for (position_from, label_from), (position_to, label_to) in zip(labels[:-1], labels[1:]):
-                    plot_info['path'].append([label_from, label_to])
+                    if position_to - position_from > 1:
+                        # Create a new path line only if there are at least two points,
+                        # otherwise it is probably just a discontinuity point in the band
+                        # structure (e.g. Gamma-X|Y-Gamma), where X and Y would be two
+                        # consecutive points, but there is no path between them
+                        plot_info['path'].append([label_from, label_to])
                     path_dict = {'length': position_to - position_from,
                                  'from': label_from,
                                  'to': label_to,
                                  'values': bands[position_from:position_to + 1, :].transpose().tolist(),
                                  'x': x[position_from:position_to + 1],
+                                 'two_band_types': two_band_types,
                                  }
                     plot_info['paths'].append(path_dict)
             else:
@@ -520,6 +528,7 @@ class BandsData(KpointsData):
                              'to': label_to,
                              'values': bands.transpose().tolist(),
                              'x': x,
+                             'two_band_types': two_band_types,
                              }
                 plot_info['paths'].append(path_dict)
                 plot_info['path'].append([label_from, label_to])

@@ -19,10 +19,10 @@ install_requires = [
     'django-extensions==1.5.0',
     'tzlocal==1.3',
     'pytz==2014.10',
-    'six==1.10.0',
+    'pyyaml',
+    'six==1.11.0',
     'future==0.16.0',
     'pathlib2==2.3.0',
-    'singledispatch==3.4.0.3',
     # We need for the time being to stay with an old version
     # of celery, including the versions of the AMQP libraries below,
     # because the support for a SQLA broker has been dropped in later
@@ -41,10 +41,10 @@ install_requires = [
     'psutil==5.4.0',
     'meld3==1.0.0',
     'numpy==1.12.0',
-    'plumpy==0.7.10',
+    'plumpy==0.7.11',
     'portalocker==1.1.0',
-    'SQLAlchemy==1.0.12',  # upgrade to SQLalchemy 1.1.5 does break tests, see #465
-    'SQLAlchemy-Utils==0.31.2',
+    'SQLAlchemy==1.0.19',  # upgrade to SQLalchemy 1.1.5 does break tests, see #465
+    'SQLAlchemy-Utils==0.33.0',
     'alembic==0.9.6',
     'ujson==1.35',
     'enum34==1.1.6',
@@ -58,9 +58,9 @@ install_requires = [
     'tabulate==0.7.5',
     'ete3==3.0.0b35',
     'uritools==1.0.2',
-    'psycopg2==2.7.1',
+    'psycopg2-binary==2.7.4',
     # Requirements for ssh transport
-    'paramiko==2.1.2',
+    'paramiko==2.4.0',
     'ecdsa==0.13',
     'pycrypto==2.6.1',
     # Requirements for verdi shell (version of ipython non enforced, because
@@ -70,6 +70,8 @@ install_requires = [
 ]
 
 extras_require = {
+    # Requirements for Python 2 only
+    ':python_version < "3"': ['chainmap', 'pathlib2', 'singledispatch >= 3.4.0.3'],
     # Requirements for ssh transport with authentification through Kerberos
     # token
     # N. B.: you need to install first libffi and MIT kerberos GSSAPI including header files.
@@ -102,7 +104,7 @@ extras_require = {
         'Jinja2==2.9.5',
         'MarkupSafe==0.23',
         # Required by readthedocs
-        'sphinx-rtd-theme==0.1.9',
+        'sphinx-rtd-theme==0.2.5b2',
     ],
     # Requirements for non-core funciontalities that rely on external atomic
     # manipulation/processing software
@@ -113,11 +115,9 @@ extras_require = {
         'pymatgen==4.5.3',  # support for NWChem I/O
         'ase==3.12.0',  # support for crystal structure manipulation
         'PyMySQL==0.7.9',  # required by ICSD tools
-        'PyCifRW==3.6.2.1',
+        'PyCifRW==4.2.1', # support for the AiiDA CifData class
         'seekpath==1.8.0',
-        'qe-tools==1.0',
-        # support for the AiiDA CifData class. Update to version 4 does
-        # break tests
+        'qe-tools==1.1.0',
     ],
     # Requirements for jupyter notebook
     'notebook': [

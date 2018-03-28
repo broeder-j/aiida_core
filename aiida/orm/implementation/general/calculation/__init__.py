@@ -8,12 +8,12 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 
+import abc
 import collections
 
 from aiida.common.utils import classproperty
 from aiida.common.links import LinkType
-from aiida.orm.mixins import SealableWithUpdatableAttributes
-
+from aiida.orm.mixins import Sealable
 
 
 def _parse_single_arg(function_name, additional_parameter,
@@ -73,7 +73,7 @@ def _parse_single_arg(function_name, additional_parameter,
         return None
 
 
-class AbstractCalculation(SealableWithUpdatableAttributes):
+class AbstractCalculation(Sealable):
     """
     This class provides the definition of an "abstract" AiiDA calculation.
     A calculation in this sense is any computation that converts data into data.
@@ -82,8 +82,21 @@ class AbstractCalculation(SealableWithUpdatableAttributes):
     calculations run via a scheduler.
     """
 
-    # A tuple with attributes that can be updated even after
-    # the call of the store() method
+    FINISHED_KEY = '_finished'
+    FAILED_KEY = '_failed'
+
+    _updatable_attributes = Sealable._updatable_attributes + ('state', FINISHED_KEY, FAILED_KEY)
+    _cacheable = False
+
+    @classproperty
+    def _hash_ignored_attributes(cls):
+        return super(AbstractCalculation, cls)._hash_ignored_attributes + [
+            '_sealed',
+            '_finished',
+        ]
+
+    # The link_type might not be correct while the object is being created.
+    _hash_ignored_inputs = ['CALL']
 
     # Nodes that can be added as input using the use_* methods
     @classproperty
@@ -111,11 +124,11 @@ class AbstractCalculation(SealableWithUpdatableAttributes):
         """
         from aiida.orm.code import Code
         return {
-            "code": {
+            'code': {
                 'valid_types': Code,
                 'additional_parameter': None,
                 'linkname': 'code',
-                'docstring': "Choose the code to use",
+                'docstring': 'Choose the code to use',
             },
         }
 
@@ -324,3 +337,44 @@ class AbstractCalculation(SealableWithUpdatableAttributes):
         from aiida.orm.code import Code
         return dict(self.get_inputs(node_type=Code, also_labels=True)).get(
             self._use_methods['code']['linkname'], None)
+
+    @abc.abstractmethod
+    def has_finished_ok(self):
+        """
+        Returns whether the Calculation has finished successfully.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def has_failed(self):
+        """
+        Returns whether the Calculation has failed.
+        """
+        raise NotImplementedError
+
+    def has_finished(self):
+        """
+        Determine if the calculation is finished for whatever reason.
+        This may be because it finished successfully or because of a failure.
+
+        :return: True if the job has finished running, False otherwise.
+        :rtype: bool
+        """
+        return self.has_finished_ok() or self.has_failed()
+
+    def _is_valid_cache(self):
+        return super(AbstractCalculation, self)._is_valid_cache() and self.has_finished_ok()
+
+    def _get_objects_to_hash(self):
+        """
+        Return a list of objects which should be included in the hash.
+        """
+        res = super(AbstractCalculation, self)._get_objects_to_hash()
+        res.append({
+            key: value.get_hash()
+            for key, value in self.get_inputs_dict(
+                link_type=LinkType.INPUT
+            ).items()
+            if key not in self._hash_ignored_inputs
+        })
+        return res
