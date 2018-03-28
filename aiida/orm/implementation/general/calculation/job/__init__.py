@@ -9,16 +9,17 @@
 ###########################################################################
 
 from abc import abstractmethod
-import datetime
 import copy
+import datetime
 
-from aiida.utils import timezone
-from aiida.common.utils import str_timedelta
+from aiida.backends.utils import get_automatic_user
 from aiida.common.datastructures import calc_states
 from aiida.common.exceptions import ModificationNotAllowed, MissingPluginError
 from aiida.common.links import LinkType
-from aiida.backends.utils import get_automatic_user
 from aiida.common.old_pluginloader import from_type_to_pluginclassname
+from aiida.common.utils import str_timedelta
+from aiida.orm.implementation.general.calculation import AbstractCalculation
+from aiida.utils import timezone
 
 # TODO: set the following as properties of the Calculation
 # 'email',
@@ -31,11 +32,15 @@ from aiida.common.old_pluginloader import from_type_to_pluginclassname
 _input_subfolder = 'raw_input'
 
 
-class AbstractJobCalculation(object):
+class AbstractJobCalculation(AbstractCalculation):
     """
     This class provides the definition of an AiiDA calculation that is run
     remotely on a job scheduler.
     """
+
+    _updatable_attributes = AbstractCalculation._updatable_attributes + (
+        'job_id', 'scheduler_state','scheduler_lastchecktime', 'last_jobinfo', 'remote_workdir',
+        'retrieve_list', 'retrieve_temporary_list', 'retrieve_singlefile_list')
 
     @classmethod
     def process(cls):
@@ -57,13 +62,6 @@ class AbstractJobCalculation(object):
         # Set default for the link to the retrieved folder (after calc is done)
         self._linkname_retrieved = 'retrieved'
 
-        self._updatable_attributes = (
-            'state', 'job_id', 'scheduler_state',
-            'scheduler_lastchecktime',
-            'last_jobinfo', 'remote_workdir', 'retrieve_list',
-            'retrieve_singlefile_list'
-        )
-
         # Files in which the scheduler output and error will be stored.
         # If they are identical, outputs will be joined.
         self._SCHED_OUTPUT_FILE = '_scheduler-stdout.txt'
@@ -83,8 +81,8 @@ class AbstractJobCalculation(object):
         defined in _init_internal_params.
 
         :note: It is a property because in this way, e.g. the
-        parser_name is taken from the actual subclass of calculation,
-        and not from the parent Calculation class
+          parser_name is taken from the actual subclass of calculation,
+          and not from the parent Calculation class
         """
         parent_dict = super(AbstractJobCalculation, self)._set_defaults
 
@@ -1040,7 +1038,7 @@ class AbstractJobCalculation(object):
 
         :param since: The timepoint to get the last check time since.
         :return: A string indicating the elapsed period, or an information
-        message.
+          message.
         """
         from aiida.daemon.timestamps import get_last_daemon_timestamp
 
@@ -1083,15 +1081,25 @@ class AbstractJobCalculation(object):
             absolute times will be used.
         :param projections: The projections used in the calculation query
         :type projections: list
-        :type times_since: :class:`datetime.datetime`
+        :type times_since: :class:`!datetime.datetime`
         :return: A list of string with information about the calculation.
         """
         d = copy.deepcopy(res)
 
         try:
-            d['calculation']['type'] = from_type_to_pluginclassname(
-                d['calculation']['type']
-            ).rsplit(".", 1)[0].lstrip('calculation.job.')
+            prefix = 'calculation.job.'
+            calculation_type = d['calculation']['type']
+            calculation_class = from_type_to_pluginclassname(calculation_type)
+            module, class_name = calculation_class.rsplit('.', 1)
+
+            # For the base class 'calculation.job.JobCalculation' the module at this point equals 'calculation.job'
+            # For this case we should simply set the type to the base module calculation.job. Otherwise we need
+            # to strip the prefix to get the proper sub module
+            if module == prefix.rstrip('.'):
+                d['calculation']['type'] = module[len(prefix):]
+            else:
+                assert module.startswith(prefix), "module '{}' does not start with '{}'".format(module, prefix)
+                d['calculation']['type'] = module[len(prefix):]
         except KeyError:
             pass
         for proj in ('ctime', 'mtime'):
@@ -1128,7 +1136,7 @@ class AbstractJobCalculation(object):
 
         Issue a warning if the state is not in the list of valid states.
 
-        :param string state: The state to be used to filter (should be a string among
+        :param str state: The state to be used to filter (should be a string among
                 those defined in aiida.common.datastructures.calc_states)
         :param computer: a Django DbComputer entry, or a Computer object, of a
                 computer in the DbComputer table.
@@ -1408,7 +1416,8 @@ class AbstractJobCalculation(object):
 
     def _presubmit(self, folder, use_unstored_links=False):
         """
-        Prepares the calculation folder with all inputs, ready to be copied to the cluster
+        Prepares the calculation folder with all inputs, ready to be copied to the cluster.
+
         :param folder: a SandboxFolder, empty in input, that will be filled with
           calculation input files and the scheduling script.
         :param use_unstored_links: if set to True, it will the presubmit will

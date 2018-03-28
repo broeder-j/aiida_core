@@ -74,14 +74,6 @@ def legacy_calc(pk):
     return RunningInfo(RunningType.LEGACY_CALC, pk)
 
 
-def async(process_class, *args, **kwargs):
-    if util.is_workfunction(process_class):
-        kwargs['__async'] = True
-        return process_class(*args, **kwargs)
-    elif issubclass(process_class, Process):
-        return parallel_engine.submit(process_class, inputs=kwargs)
-
-
 def run(process_class, *args, **inputs):
     """
     Synchronously (i.e. blocking) run a workfunction or process.
@@ -123,7 +115,7 @@ def queue_up(process_class, inputs, storage):
 
     :param process_class: The process class to queue up.
     :param inputs: The inputs to the process.
-    :type inputs: Mapping
+    :type inputs: :class:`!collections.Mapping`
     :param storage: The storage engine which will be used to save the process (of type plum.persistence)
     :return: The pid of the queued process.
     """

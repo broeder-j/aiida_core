@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+###########################################################################
+# Copyright (c), The AiiDA team. All rights reserved.                     #
+# This file is part of the AiiDA code.                                    #
+#                                                                         #
+# The code is hosted on GitHub at https://github.com/aiidateam/aiida_core #
+# For further information on the license, see the LICENSE.txt file        #
+# For further information please visit http://www.aiida.net               #
+###########################################################################
 """
 Testing tools for related projects like plugins
 
@@ -74,7 +83,7 @@ class FixtureManager(object):
     Manage the life cycle of a completely separated and temporary AiiDA environment
 
     * No previously created database of profile is required to run tests using this
-    environment
+      environment
     * Tests using this environment will never pollute the user's work environment
 
     Example::

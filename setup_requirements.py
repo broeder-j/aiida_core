@@ -19,7 +19,7 @@ install_requires = [
     'django-extensions==1.5.0',
     'tzlocal==1.3',
     'pytz==2014.10',
-    'six==1.10.0',
+    'six==1.11.0',
     'future==0.16.0',
     'pathlib2==2.3.0',
     'singledispatch==3.4.0.3',
@@ -43,8 +43,8 @@ install_requires = [
     'numpy==1.12.0',
     'plumpy==0.7.10',
     'portalocker==1.1.0',
-    'SQLAlchemy==1.0.12',  # upgrade to SQLalchemy 1.1.5 does break tests, see #465
-    'SQLAlchemy-Utils==0.31.2',
+    'SQLAlchemy==1.0.19',  # upgrade to SQLalchemy 1.1.5 does break tests, see #465
+    'SQLAlchemy-Utils==0.33.0',
     'alembic==0.9.6',
     'ujson==1.35',
     'enum34==1.1.6',
@@ -58,9 +58,9 @@ install_requires = [
     'tabulate==0.7.5',
     'ete3==3.0.0b35',
     'uritools==1.0.2',
-    'psycopg2==2.7.1',
+    'psycopg2-binary==2.7.4',
     # Requirements for ssh transport
-    'paramiko==2.1.2',
+    'paramiko==2.4.0',
     'ecdsa==0.13',
     'pycrypto==2.6.1',
     # Requirements for verdi shell (version of ipython non enforced, because
@@ -79,7 +79,7 @@ extras_require = {
         'python-gssapi==0.6.4',
     ],
     # Requirements for RESTful API
-    'REST': [
+    'rest': [
         'Flask==0.10.1',
         'Flask-RESTful==0.3.6',
         'Flask-Cors==3.0.1',
@@ -96,13 +96,13 @@ extras_require = {
     ],
     # Requirements to buiilding documentation
     'docs': [
-        'Sphinx==1.5.2',
+        'Sphinx==1.7.2',
         'Pygments==2.2.0',
         'docutils==0.13.1',
         'Jinja2==2.9.5',
         'MarkupSafe==0.23',
         # Required by readthedocs
-        'sphinx-rtd-theme==0.1.9',
+        'sphinx-rtd-theme==0.2.5b2',
     ],
     # Requirements for non-core funciontalities that rely on external atomic
     # manipulation/processing software
@@ -150,4 +150,4 @@ extras_require = {
 #    the requirements (and there is no easy way on our side to fix a specific
 #    installation order of dependencies)
 
-extras_require['testing'] += extras_require['REST'] + extras_require['atomic_tools']
+extras_require['testing'] += extras_require['rest'] + extras_require['atomic_tools']

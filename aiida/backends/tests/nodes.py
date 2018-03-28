@@ -10,9 +10,6 @@
 # pylint: disable=too-many-lines,invalid-name,protected-access
 # pylint: disable=missing-docstring,too-many-locals,too-many-statements
 # pylint: disable=too-many-public-methods
-"""
-Tests for nodes, attributes and links
-"""
 import unittest
 from sqlalchemy.exc import StatementError
 
@@ -22,55 +19,6 @@ from aiida.common.links import LinkType
 from aiida.orm.data import Data
 from aiida.orm.node import Node
 from aiida.orm.utils import load_node
-
-class TestDataNode(AiidaTestCase):
-    """
-    These tests check the features of Data nodes that differ from the base Node
-    """
-    boolval = True
-    intval = 123
-    floatval = 4.56
-    stringval = "aaaa"
-    # A recursive dictionary
-    dictval = {
-        'num': 3,
-        'something': 'else',
-        'emptydict': {},
-        'recursive': {
-            'a': 1,
-            'b': True,
-            'c': 1.2,
-            'd': [1, 2, None],
-            'e': {
-                'z': 'z',
-                'x': None,
-                'xx': {},
-                'yy': []
-            }
-        }
-    }
-    listval = [1, "s", True, None]
-    emptydict = {}
-    emptylist = []
-
-    def test_attr_after_storing(self):
-        a = Data()
-        a._set_attr('bool', self.boolval)
-        a._set_attr('integer', self.intval)
-        a.store()
-
-        # And now I try to edit/delete the keys; I should not be able to do it
-        # after saving. I try only for a couple of attributes
-        with self.assertRaises(ModificationNotAllowed):
-            a._del_attr('bool')
-        with self.assertRaises(ModificationNotAllowed):
-            a._set_attr('integer', 13)
-
-    def test_modify_attr_after_store(self):
-        a = Data()
-        a.store()
-        with self.assertRaises(ModificationNotAllowed):
-            a._set_attr('i', 12)
 
 
 class TestTransitiveNoLoops(AiidaTestCase):
@@ -234,6 +182,32 @@ class TestNodeBasic(AiidaTestCase):
     listval = [1, "s", True, None]
     emptydict = {}
     emptylist = []
+
+    def test_attribute_mutability(self):
+        """
+        Attributes of a node should be immutable after storing, unless the stored_check is
+        disabled in the call
+        """
+        a = Node()
+        a._set_attr('bool', self.boolval)
+        a._set_attr('integer', self.intval)
+        a.store()
+
+        # After storing attributes should now be immutable
+        with self.assertRaises(ModificationNotAllowed):
+            a._del_attr('bool')
+
+        with self.assertRaises(ModificationNotAllowed):
+            a._set_attr('integer', self.intval)
+
+        # Passing stored_check=False should disable the mutability check
+        a._del_attr('bool', stored_check=False)
+        a._set_attr('integer', self.intval, stored_check=False)
+
+        self.assertEquals(a.get_attr('integer'), self.intval)
+
+        with self.assertRaises(AttributeError):
+            a.get_attr('bool')
 
     def test_attr_before_storing(self):
         a = Node()
@@ -921,14 +895,11 @@ class TestNodeBasic(AiidaTestCase):
         returned_attrs = {k: v for k, v in a.iterextras()}
         self.assertEquals(returned_attrs, extras_to_set)
 
-    def test_versioning_and_postsave_attributes(self):
+    def test_versioning(self):
         """
-        Checks the versioning.
+        Test the versioning of the node when setting attributes and extras
         """
-        from aiida.orm.test import myNodeWithFields
-
-        # Has 'state' as updatable attribute
-        a = myNodeWithFields()
+        a = Node()
         attrs_to_set = {
             'bool': self.boolval,
             'integer': self.intval,
@@ -936,19 +907,17 @@ class TestNodeBasic(AiidaTestCase):
             'string': self.stringval,
             'dict': self.dictval,
             'list': self.listval,
-            'state': 267,
         }
 
-        for k, v in attrs_to_set.iteritems():
-            a._set_attr(k, v)
-
-        # Check before storing
-        self.assertEquals(267, a.get_attr('state'))
+        for key, value in attrs_to_set.iteritems():
+            a._set_attr(key, value)
+            self.assertEquals(a.get_attr(key), value)
 
         a.store()
 
         # Check after storing
-        self.assertEquals(267, a.get_attr('state'))
+        for key, value in attrs_to_set.iteritems():
+            self.assertEquals(a.get_attr(key), value)
 
         # Even if I stored many attributes, this should stay at 1
         self.assertEquals(a.dbnode.nodeversion, 1)
@@ -957,18 +926,12 @@ class TestNodeBasic(AiidaTestCase):
         a.set_extra('a', 'b')
         self.assertEquals(a.dbnode.nodeversion, 2)
 
-        # I check that I can set this attribute
-        a._set_attr('state', 999)
-
-        # I check increment on new version
-        self.assertEquals(a.dbnode.nodeversion, 3)
-
         # In both cases, the node version must increase
         a.label = 'test'
-        self.assertEquals(a.dbnode.nodeversion, 4)
+        self.assertEquals(a.dbnode.nodeversion, 3)
 
         a.description = 'test description'
-        self.assertEquals(a.dbnode.nodeversion, 5)
+        self.assertEquals(a.dbnode.nodeversion, 4)
 
     def test_delete_extras(self):
         """
@@ -1134,9 +1097,7 @@ class TestNodeBasic(AiidaTestCase):
         """
         Checks the versioning.
         """
-        from aiida.orm.test import myNodeWithFields
-
-        a = myNodeWithFields()
+        a = Node()
         a.store()
 
         # Even if I stored many attributes, this should stay at 1
@@ -1448,6 +1409,55 @@ class TestNodeBasic(AiidaTestCase):
         for spec in (node.pk, uuid_stored):
             with self.assertRaises(NotExistent):
                 load_node(spec, parent_class=ArrayData)
+
+    def test_load_plugin_safe(self):
+        from aiida.orm import (JobCalculation, CalculationFactory, DataFactory)
+
+        ###### for calculation
+        calc_params = {
+            'computer': self.computer,
+            'resources': {'num_machines': 1, 'num_mpiprocs_per_machine': 1}
+        }
+
+        TemplateReplacerCalc = CalculationFactory('simpleplugins.templatereplacer')
+        testcalc = TemplateReplacerCalc(**calc_params).store()
+        jobcalc = JobCalculation(**calc_params).store()
+
+        # compare if plugin exist
+        obj = testcalc.dbnode.get_aiida_class()
+        self.assertEqual(type(testcalc), type(obj))
+
+        # change node type and save in database again
+        testcalc.dbnode.type = "calculation.job.simpleplugins_tmp.templatereplacer.TemplatereplacerCalculation."
+        testcalc.dbnode.save()
+
+        # changed node should return job calc as its plugin is not exist
+        obj = testcalc.dbnode.get_aiida_class()
+        self.assertEqual(type(jobcalc), type(obj))
+
+        ####### for data
+        KpointsData = DataFactory('array.kpoints')
+        kpoint = KpointsData().store()
+        Data = DataFactory("Data")
+        data = Data().store()
+
+        # compare if plugin exist
+        obj = kpoint.dbnode.get_aiida_class()
+        self.assertEqual(type(kpoint), type(obj))
+
+        # change node type and save in database again
+        kpoint.dbnode.type = "data.array.kpoints_tmp.KpointsData."
+        kpoint.dbnode.save()
+
+        # changed node should return data node as its plugin is not exist
+        obj = kpoint.dbnode.get_aiida_class()
+        self.assertEqual(type(data), type(obj))
+
+        ###### for node
+        n1 = Node().store()
+        obj = n1.dbnode.get_aiida_class()
+        self.assertEqual(type(n1), type(obj))
+
 
 
 class TestSubNodesAndLinks(AiidaTestCase):
@@ -1959,3 +1969,58 @@ class TestSubNodesAndLinks(AiidaTestCase):
         # more than one input to the same data object!
         with self.assertRaises(ValueError):
             d1.add_link_from(calc2, link_type=LinkType.CREATE)
+
+    def test_node_get_inputs_outputs_link_type_stored(self):
+        """
+        Test that the link_type parameter in get_inputs and get_outputs only
+        returns those nodes with the correct link type for stored nodes
+        """
+        node_origin = Node().store()
+        node_caller = Node().store()
+        node_called = Node().store()
+        node_input = Node().store()
+        node_output = Node().store()
+        node_return = Node().store()
+
+        # Input links of node_origin
+        node_origin.add_link_from(node_caller, label='caller', link_type=LinkType.CALL)
+        node_origin.add_link_from(node_input, label='input', link_type=LinkType.INPUT)
+
+        # Output links of node_origin
+        node_called.add_link_from(node_origin, label='called', link_type=LinkType.CALL)
+        node_output.add_link_from(node_origin, label='output', link_type=LinkType.CREATE)
+        node_return.add_link_from(node_origin, label='return', link_type=LinkType.RETURN)
+
+        # All inputs and outputs
+        self.assertEquals(len(node_origin.get_inputs()), 2)
+        self.assertEquals(len(node_origin.get_outputs()), 3)
+
+        # Link specific inputs
+        self.assertEquals(len(node_origin.get_inputs(link_type=LinkType.CALL)), 1)
+        self.assertEquals(len(node_origin.get_inputs(link_type=LinkType.INPUT)), 1)
+
+        # Link specific outputs
+        self.assertEquals(len(node_origin.get_outputs(link_type=LinkType.CALL)), 1)
+        self.assertEquals(len(node_origin.get_outputs(link_type=LinkType.CREATE)), 1)
+        self.assertEquals(len(node_origin.get_outputs(link_type=LinkType.RETURN)), 1)
+
+    def test_node_get_inputs_link_type_unstored(self):
+        """
+        Test that the link_type parameter in get_inputs only returns those nodes with
+        the correct link type for unstored nodes. We don't check this analogously for
+        get_outputs because there is not output links cache
+        """
+        node_origin = Node()
+        node_caller = Node()
+        node_input = Node()
+
+        # Input links of node_origin
+        node_origin.add_link_from(node_caller, label='caller', link_type=LinkType.CALL)
+        node_origin.add_link_from(node_input, label='input', link_type=LinkType.INPUT)
+
+        # All inputs and outputs
+        self.assertEquals(len(node_origin.get_inputs()), 2)
+
+        # Link specific inputs
+        self.assertEquals(len(node_origin.get_inputs(link_type=LinkType.CALL)), 1)
+        self.assertEquals(len(node_origin.get_inputs(link_type=LinkType.INPUT)), 1)

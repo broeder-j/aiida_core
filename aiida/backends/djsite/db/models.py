@@ -13,14 +13,14 @@ from six import reraise
 from django.db import models as m
 from django_extensions.db.fields import UUIDField
 from django.contrib.auth.models import (
-    AbstractBaseUser, BaseUserManager, PermissionsMixin)
+    AbstractBaseUser, BaseUserManager, PermissionsMixin )
 from django.utils.encoding import python_2_unicode_compatible
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models.query import QuerySet
 
 from aiida.utils import timezone
 from aiida.common.exceptions import (
-    ConfigurationError, DbContentError, MissingPluginError)
+    ConfigurationError, DbContentError, MissingPluginError )
 
 from aiida.backends.settings import AIIDANODES_UUID_VERSION
 from aiida.backends.djsite.settings.settings import AUTH_USER_MODEL
@@ -139,11 +139,7 @@ class DbNode(m.Model):
     :note: Attributes in the DbAttribute table have to be thought as belonging
        to the DbNode, (this is the reason for which there is no 'user' field
        in the DbAttribute field). Moreover, Attributes define uniquely the
-       Node so should be immutable (except for the few ones defined in the
-       _updatable_attributes attribute of the Node() class, that are updatable:
-       these are Attributes that are set by AiiDA, so the user should not
-       modify them, but can be changed (e.g., the append_text of a code, that
-       can be redefined if the code has to be recompiled).
+       Node so should be immutable
     """
     uuid = UUIDField(auto=True, version=AIIDANODES_UUID_VERSION, db_index=True)
     # in the form data.upffile., data.structure., calculation., ...
@@ -189,8 +185,7 @@ class DbNode(m.Model):
         """
         from aiida.orm.node import Node
         from aiida.common.old_pluginloader import from_type_to_pluginclassname
-        from aiida.common.pluginloader import load_plugin
-        from aiida.common import aiidalogger
+        from aiida.common.pluginloader import load_plugin_safe
 
         try:
             pluginclassname = from_type_to_pluginclassname(self.type)
@@ -198,12 +193,7 @@ class DbNode(m.Model):
             raise DbContentError("The type name of node with pk= {} is "
                                  "not valid: '{}'".format(self.pk, self.type))
 
-        try:
-            PluginClass = load_plugin(Node, 'aiida.orm', pluginclassname)
-        except MissingPluginError:
-            aiidalogger.error("Unable to find plugin for type '{}' (node= {}), "
-                              "will use base Node class".format(self.type, self.pk))
-            PluginClass = Node
+        PluginClass = load_plugin_safe(Node, 'aiida.orm', pluginclassname, self.type, self.pk)
 
         return PluginClass(dbnode=self)
 
@@ -329,10 +319,10 @@ def _deserialize_attribute(mainitem, subitems, sep, original_class=None,
     :param subitems: must be a dictionary of dictionaries. In the top-level dictionary,
       the key must be the key of the attribute, stripped of all prefixes
       (i.e., if the mainitem has key 'a.b' and we pass subitems
-        'a.b.0', 'a.b.1', 'a.b.1.c', their keys must be '0', '1', '1.c').
-        It must be None if the value is not iterable (int, str,
-        float, ...).
-        It is an empty dictionary if there are no subitems.
+      'a.b.0', 'a.b.1', 'a.b.1.c', their keys must be '0', '1', '1.c').
+      It must be None if the value is not iterable (int, str,
+      float, ...).
+      It is an empty dictionary if there are no subitems.
     :param sep: a string, the separator between subfields (to separate the
       name of a dictionary from the keys it contains, for instance)
     :param original_class: if these elements come from a specific subclass
@@ -351,7 +341,7 @@ def _deserialize_attribute(mainitem, subitems, sep, original_class=None,
       from the number declared in the ival field).
 
     :return: the deserialized value
-    :raise DeserializationError: if an error occurs
+    :raise aiida.backends.djsite.db.models.DeserializationException: if an error occurs
     """
     from aiida.utils.timezone import (
         is_naive, make_aware, get_current_timezone)
@@ -1390,7 +1380,7 @@ class DbComputer(m.Model):
         """
         Return a DbComputer from its name (or from another Computer or DbComputer instance)
         """
-        from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
+        from django.core.exceptions import MultipleObjectsReturned
         from aiida.common.exceptions import NotExistent
         from aiida.orm.computer import Computer
 
@@ -1614,7 +1604,7 @@ class DbWorkflow(m.Model):
 
     def get_aiida_class(self):
         """
-        Return the corresponding aiida instance of class aiida.worflow
+        Return the corresponding aiida instance of class aiida.workflow
         """
         from aiida.orm.workflow import Workflow
 

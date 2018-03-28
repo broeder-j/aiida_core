@@ -390,7 +390,8 @@ class Stepper(object):
     def step(self):
         """
         Execute on step of the instructions.
-        :return: A 2-tuple with entries:
+
+        :return: A 2-tuple with entries
             0. True if the stepper has finished, False otherwise
             1. The return value from the executed step
         :rtype: tuple
@@ -511,32 +512,35 @@ class _Block(_Instruction):
         return self.Stepper(workflow, self._commands)
 
     @override
-    def get_description(self):
+    def get_description(self, indent_level=0, indent_increment=4):
+        indent = ' ' * (indent_level * indent_increment)
         desc = []
         for c in self._commands:
             if isinstance(c, _Instruction):
                 desc.append(c.get_description())
             else:
+                desc.append('{}* {}'.format(indent, c.__name__))
                 if c.__doc__:
-                    doc = "\n" + c.__doc__
-                    doc.replace('\n', '    \n')
-                    desc.append("::\n{}\n::".format(doc))
-                desc.append(c.__name__)
+                    doc = c.__doc__
+                    desc.append('{}{}'.format(indent,doc))
 
-        return "\n".join(desc)
+        return '\n'.join(desc)
 
 
 class _Conditional(object):
     """
     Object that represents some condition with the corresponding body to be
-    executed if the condition is met e.g.:
-    if(condition):
-      body
+    executed if the condition.
+    
+    E.g. ::
 
-    or
+      if(condition):
+        body
 
-    while(condition):
-      body
+    or::
+
+      while(condition):
+        body
     """
 
     def __init__(self, parent, condition):
@@ -653,13 +657,11 @@ class _If(_Instruction):
 
     @override
     def get_description(self):
-        description = [
-            "if {}:\n{}".format(
-                self._ifs[0].condition.__name__, self._ifs[0].body)]
+        description = ['if {}:\n{}'.format(self._ifs[0].condition.__name__, self._ifs[0].body.get_description(indent_level=1))]
         for conditional in self._ifs[1:]:
-            description.append("elif {}:\n{}".format(
-                conditional.condition.__name__, conditional.body))
-        return "\n".join(description)
+            description.append('elif {}:\n{}'.format(
+                conditional.condition.__name__, conditional.body.get_description(indent_level=1)))
+        return '\n'.join(description)
 
 
 class _While(_Conditional, _Instruction):
@@ -729,7 +731,7 @@ class _While(_Conditional, _Instruction):
 
     @override
     def get_description(self):
-        return "while {}:\n{}".format(self.condition.__name__, self.body)
+        return "while {}:\n{}".format(self.condition.__name__, self.body.get_description(indent_level=1))
 
 
 class _PropagateReturn(BaseException):
@@ -740,6 +742,7 @@ class _ReturnStepper(Stepper):
     def step(self):
         """
         Execute on step of the instructions.
+
         :return: A 2-tuple with entries:
             0. True if the stepper has finished, False otherwise
             1. The return value from the executed step
