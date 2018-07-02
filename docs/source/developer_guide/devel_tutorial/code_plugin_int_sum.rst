@@ -1,5 +1,5 @@
-Tutorial: Calculation plugin - Integer summation
-================================================
+Calculation plugin - Integer summation
+======================================
 
 .. toctree::
    :maxdepth: 2
@@ -39,7 +39,7 @@ Code
 ----
 The code is an external program that does a useful calculation for us. For
 detailed information on how to setup the new codes, you can have a look at the
-:ref:`respective documentation page <setup_computers_codes>`.
+:ref:`respective documentation page <setup_code>`.
 
 Imagine that we have the following python code that we want to install. It
 does the simple task of adding two numbers that are found in a JSON file, whose
@@ -407,7 +407,7 @@ Which will give us an output similar to the following::
 
     $ verdi code show 73
      * PK:             73
-    * UUID:           34b44d33-86c1-478b-88ff-baadfb6f30bf
+     * UUID:           34b44d33-86c1-478b-88ff-baadfb6f30bf
      * Label:          sum
      * Description:    A simple sum executable
      * Default plugin: sum

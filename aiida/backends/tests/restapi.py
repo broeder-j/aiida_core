@@ -239,7 +239,7 @@ class RESTApiTestCase(AiidaTestCase):
         :param result_name: result name in response e.g. inputs, outputs
         """
 
-        if result_node_type == None and result_name == None:
+        if result_node_type is None and result_name is None:
             result_node_type = node_type
             result_name = node_type
 
@@ -266,15 +266,13 @@ class RESTApiTestCase(AiidaTestCase):
                     raise InputValidationError(
                         "Pass the expected range of the dummydata")
 
-                self.assertTrue(
-                    len(response["data"][result_name]) == len(expected_data))
+                self.assertEqual(
+                    len(response["data"][result_name]), len(expected_data))
 
                 for expected_node, response_node in zip(expected_data,
                                                         response["data"][
                                                             result_name]):
-
-                    self.assertTrue(all(item in response_node.items()
-                                        for item in expected_node.items()))
+                    self.assertEqual(response_node['uuid'], expected_node['uuid'])
 
                 self.compare_extra_response_data(node_type, url, response, uuid)
 
@@ -771,14 +769,15 @@ class RESTApiTestSuite(RESTApiTestCase):
         """
         Get the list of give calculation inputs
         """
+        from aiida.backends.tests.dataclasses import simplify
         node_uuid = self.get_dummy_data()["structuredata"][0]["uuid"]
         url = self.get_url_prefix() + '/structures/' + str(
             node_uuid) + '/content/visualization?visformat=cif'
         with self.app.test_client() as client:
             rv = client.get(url)
             response = json.loads(rv.data)
-            expected_visdata = """#\\#CIF1.1\n##########################################################################\n#               Crystallographic Information Format file \n#               Produced by PyCifRW module\n# \n#  This is a CIF file.  CIF has been adopted by the International\n#  Union of Crystallography as the standard for data archiving and \n#  transmission.\n#\n#  For information on this file format, follow the CIF links at\n#  http://www.iucr.org\n##########################################################################\n\ndata_0\nloop_\n  _atom_site_label\n  _atom_site_fract_x\n  _atom_site_fract_y\n  _atom_site_fract_z\n  _atom_site_type_symbol\n   Ba1  0.0  0.0  0.0  Ba\n \n_cell_angle_alpha                       90.0\n_cell_angle_beta                        90.0\n_cell_angle_gamma                       90.0\n_cell_length_a                          2.0\n_cell_length_b                          2.0\n_cell_length_c                          2.0\nloop_\n  _symmetry_equiv_pos_as_xyz\n   'x, y, z'\n \n_symmetry_int_tables_number             1\n_symmetry_space_group_name_H-M          'P 1'\n"""
-            self.assertEquals(response["data"]["visualization"]["str_viz_info"]["data"],expected_visdata)
+            expected_visdata = """\n##########################################################################\n#               Crystallographic Information Format file \n#               Produced by PyCifRW module\n# \n#  This is a CIF file.  CIF has been adopted by the International\n#  Union of Crystallography as the standard for data archiving and \n#  transmission.\n#\n#  For information on this file format, follow the CIF links at\n#  http://www.iucr.org\n##########################################################################\n\ndata_0\nloop_\n  _atom_site_label\n  _atom_site_fract_x\n  _atom_site_fract_y\n  _atom_site_fract_z\n  _atom_site_type_symbol\n   Ba1  0.0  0.0  0.0  Ba\n \n_cell_angle_alpha                       90.0\n_cell_angle_beta                        90.0\n_cell_angle_gamma                       90.0\n_cell_length_a                          2.0\n_cell_length_b                          2.0\n_cell_length_c                          2.0\nloop_\n  _symmetry_equiv_pos_as_xyz\n   'x, y, z'\n \n_symmetry_int_tables_number             1\n_symmetry_space_group_name_H-M          'P 1'\n"""
+            self.assertEquals(simplify(response["data"]["visualization"]["str_viz_info"]["data"]),simplify(expected_visdata))
             self.assertEquals(response["data"]["visualization"]["str_viz_info"]["format"],"cif")
             self.assertEquals(response["data"]["visualization"]["dimensionality"],
                               {u'dim': 3, u'value': 8.0, u'label': u'volume'})
@@ -803,4 +802,25 @@ class RESTApiTestSuite(RESTApiTestCase):
         cif = load_node(node_uuid)._prepare_cif()[0]
         self.assertEquals(rv.data, cif )
 
+    ############### schema #############
+    def test_schema(self):
+        """
+        test schema
+        """
+        for nodetype in ["nodes", "calculations", "data", "codes", "computers", "users", "groups"]:
+            url = self.get_url_prefix() + '/' + nodetype + '/schema'
+            with self.app.test_client() as client:
+                rv = client.get(url)
+                response = json.loads(rv.data)
+                expected_keys = ["display_name", "help_text", "is_display", "is_foreign_key", "type"]
 
+                # check fields
+                for pkey, pinfo in response["data"]["fields"].items():
+                    available_keys = pinfo.keys()
+                    for prop in expected_keys:
+                        self.assertIn(prop, available_keys)
+
+                # check order
+                available_properties = response["data"]["fields"].keys()
+                for prop in response["data"]["ordering"]:
+                    self.assertIn(prop, available_properties)

@@ -53,6 +53,12 @@ The first thing to know is how to chose entities that you want to query::
     qb = QueryBuilder()       # Instantiating instance. One instance -> one query
     qb.append(JobCalculation) # Setting first vertice of path
 
+You can also pass a tuple, list or set of classes, if you are interested in instances of different classes.
+However, they have to be of the same ORM-type (I.e. all have to be subclasses of Node:
+
+    from aiida.orm.querybuilder import QueryBuilder
+    qb = QueryBuilder()       # Instantiating instance. One instance -> one query
+    qb.append([JobCalculation, WorkCalculation]) # Setting first vertice of path, either Work or Job.
 
 
 Retrieving results
@@ -532,6 +538,17 @@ That works the same for the extras.
 
 .. note::
     Comparisons in the attributes (extras) are also implicitly done by type.
+
+Filtering or projecting on lists works similar to dictionaries.
+You expand into the list using the dot (.) and afterwards adding the list-index.
+The example below filters KpointsData by the first index in the mesh of KpointsData=instance, and returns that same index in the list::
+
+    qb = QueryBuilder()
+    qb.append(
+        DataFactory('array.kpoints'),
+        project=['attributes.mesh.0'],
+        filters={'attributes.mesh.0':{'>':2}}
+    )
 
 Let's do a last example. You are familiar with the Quantum Espresso PWscf tutorial?
 Great, because this will be our use case here. (If not, you can find it on the

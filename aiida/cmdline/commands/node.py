@@ -8,13 +8,14 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 import sys
+import click
 
 from aiida.backends.utils import load_dbenv, is_dbenv_loaded
 from aiida.cmdline import delayed_load_node as load_node
 from aiida.cmdline.baseclass import VerdiCommand
 from aiida.cmdline.baseclass import (
     VerdiCommandRouter, VerdiCommandWithSubcommands)
-
+from aiida.cmdline.commands import verdi, node
 
 
 def list_repo_files(node, path, color):
@@ -126,7 +127,8 @@ class Node(VerdiCommandRouter):
         self.routed_subcommands = {
             'repo': _Repo,
             'show': _Show,
-            'tree': _Tree
+            'tree': _Tree,
+            'delete': _Delete,
         }
 
 
@@ -229,32 +231,112 @@ class _Repo(VerdiCommandWithSubcommands):
             else:
                 raise
 
-
-class _Show(VerdiCommand):
-    """
-    Show node information (pk, uuid, class, inputs and outputs)
-    """
+class _Show(VerdiCommandWithSubcommands):
 
     def run(self, *args):
+        verdi()
+
+@node.command('show')
+@click.argument('identifiers', type=str, nargs=-1, required=True)
+@click.option('-u', '--uuid', 'uuid', flag_value=True,
+              help="If activated the identifier is UUID, "
+                   "otherwise it is a pk/id.")
+@click.option('--print-groups', 'print_groups', flag_value=True,
+              help="Show groups containing the nodes.")
+@click.option('--no-print-groups', '--dont-print-groups', 'print_groups',
+              flag_value=False, help="Do not show groups containing the nodes "
+                                     "output. Default behaviour.")
+def show(identifiers, uuid, print_groups):
+    from aiida.common.exceptions import NotExistent
+    from aiida.common.exceptions import MultipleObjectsError
+
+    if not is_dbenv_loaded():
+        load_dbenv()
+
+    for id in identifiers:
+        try:
+            if uuid:
+                try:
+                    n = load_node(uuid=id)
+                except MultipleObjectsError:
+                    click.echo("More than one node found. Please provide "
+                               "longer starting UUID pattern.", err=True)
+                    sys.exit(2)
+            else:
+                try:
+                    ids = int(id)
+                except ValueError:
+                    click.echo("The pk/id can not be a string. Please provide "
+                               "an integer.", err=True)
+                    sys.exit(3)
+                n = load_node(pk=int(ids))
+            print_node_info(n, print_groups=print_groups)
+        except NotExistent as e:
+            click.echo(e.message, err=True)
+            sys.exit(1)
+
+        if len(identifiers) > 1:
+            click.echo("")
+
+def print_node_info(node, print_groups=False):
+    from aiida.cmdline.utils.common import print_node_info
+
+    ###TODO
+    #Add a check here on the node type, otherwise it might try to access attributes such as code which are not necessarily there
+    #####
+    print_node_info(node)
+
+    if print_groups:
+        from aiida.orm.querybuilder import QueryBuilder
+        from aiida.orm.group import Group
+        from aiida.orm.node import Node
+
+        qb = QueryBuilder()
+        qb.append(Node, tag='node', filters={'id': {'==': node.pk}})
+        qb.append(Group, tag='groups', group_of='node',
+                  project=['id', 'name'])
+
+        click.echo("#### GROUPS:")
+
+        if qb.count() == 0:
+            click.echo("No groups found containing node {}".format(node.pk))
+        else:
+            res = qb.iterdict()
+            for gr in res:
+                gr_specs = "{} {}".format(gr['groups']['name'],
+                                          gr['groups']['id'])
+                click.echo(gr_specs)
+
+class _Delete(VerdiCommand):
+    def run(self, *args):
         """
-        Show node information.
+        Deletes a node and it's inferred data provenance
+        :raise ValueError: if no valid pk or uuid is given.
         """
         import argparse
         from aiida.common.exceptions import NotExistent
+        from aiida.utils.delete_nodes import delete_nodes
 
         parser = argparse.ArgumentParser(
             prog=self.get_full_command_name(),
-            description='Show information of a node.')
-        parser.add_argument('pk', type=int, default=None, nargs="+",
-                            help="ID of the node.")
-        parser.add_argument('--print-groups', action='store_true',
-                            dest='print_groups', default=False,
-                            help="Show groups containing the nodes.")
-        parser.add_argument('--no-print-groups', '--dont-print-groups',
-                            action='store_false', dest='print_groups',
-                            default=False,
-                            help="Do not show groups containing the nodes"
-                                 "output. Default behaviour.")
+            description='delete a node and everything that originated from that node')
+        parser.add_argument('pks', type=int, default=None, nargs="*", help="ID of the nodes to delete.")
+        parser.add_argument('-u', '--uuids', default=None, nargs='*', help='The uuid of the nodes to delete')
+        parser.add_argument('-c', '--follow-calls',
+            help='follow the call links downwards when deleting. If a node is a WorkCalculation, will delete everything it called',
+            action='store_true')
+        parser.add_argument('-n', '--dry-run', help='dry run, does not delete',
+            action='store_true')
+        # Commenting this option for now
+        # parser.add_argument('-f', '--force', help='force deletion, disables final user confirmation', action='store_true')
+        # Commenting also the option for follow returns. This is dangerous for the unexperienced user.
+        # parser.add_argument('-r', '--follow-returns',
+        #    help='follow the return-links downwards when deleting. If a node is a WorkCalculation, will delete everything it returned',
+        #    action='store_true')
+
+        parser.add_argument('-v', '--verbosity', help="Verbosity level: 0: No printout; 1: Print number of nodes marked for deletion; "
+            "2 and higher: Print individual nodes that are marked for deletion",
+            action='count', default=1)
 
         args = list(args)
         parsed_args = parser.parse_args(args)
@@ -262,45 +344,25 @@ class _Show(VerdiCommand):
         if not is_dbenv_loaded():
             load_dbenv()
 
-        for pk in parsed_args.pk:
-            try:
-                n = load_node(pk)
-                self.print_node_info(n, print_groups=parsed_args.print_groups)
-            except NotExistent as e:
-                print >> sys.stderr, e.message
-                sys.exit(1)
+        from aiida.orm import Node
+        from aiida.orm.querybuilder import QueryBuilder
 
-            if len(parsed_args.pk) > 1:
-                print ""
+        filters={'or':[]}
+        for key, req_vals in (('id', parsed_args.pks), ('uuid', parsed_args.uuids)):
+            if req_vals:
+                filters['or'].append({key:{'in':req_vals}})
 
-    def print_node_info(self, node, print_groups=False):
-        from aiida.cmdline.common import print_node_info
 
-###TODO
-#Add a check here on the node type, otherwise it might try to access attributes such as code which are not necessarily there
-#####
-        print_node_info(node)
+        node_pks_to_delete = set([_ for _, in QueryBuilder().append(Node, filters=filters, project='id').all()])
+        if not(node_pks_to_delete):
+            print "Nothing to delete"
+            return None
+        delete_nodes(node_pks_to_delete,
+                follow_calls=parsed_args.follow_calls,
+                dry_run=parsed_args.dry_run, verbosity=parsed_args.verbosity)
 
-        if print_groups:
-            from aiida.orm.querybuilder import QueryBuilder
-            from aiida.orm.group import Group
-            from aiida.orm.node import Node
 
-            qb = QueryBuilder()
-            qb.append(Node, tag='node', filters={'id': {'==': node.pk}})
-            qb.append(Group, tag='groups', group_of='node',
-                      project=['id', 'name'])
 
-            print "#### GROUPS:"
-
-            if qb.count() == 0:
-                print "No groups found containing node {}".format(node.pk)
-            else:
-                res = qb.iterdict()
-                for gr in res:
-                    gr_specs = "{} {}".format(gr['groups']['name'],
-                                              gr['groups']['id'])
-                    print gr_specs
 
 
 class _Tree(VerdiCommand):
@@ -343,7 +405,7 @@ class _Tree(VerdiCommand):
                 print ""
 
     def print_node_tree(self, node, max_depth, follow_links=None):
-        from aiida.cmdline.common import print_node_summary
+        from aiida.cmdline.utils.common import print_node_summary
         from ete3 import Tree
         print_node_summary(node)
 

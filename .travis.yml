@@ -9,6 +9,7 @@ python:
 cache: pip
 
 services:
+    - rabbitmq
     - postgresql
     - docker
 
@@ -16,15 +17,15 @@ addons:
     postgresql: "9.5"
 
     apt:
-       packages:
-           - texlive-base
-           - texlive-generic-recommended
-           - texlive-fonts-recommended
-           - texlive-latex-base
-           - texlive-latex-recommended
-           - texlive-latex-extra
-           - dvipng
-           - dvidvi
+        packages:
+            - texlive-base
+            - texlive-generic-recommended
+            - texlive-fonts-recommended
+            - texlive-latex-base
+            - texlive-latex-recommended
+            - texlive-latex-extra
+            - dvipng
+            - dvidvi
 
 before_install:
     # This is needed for the SSH tests (being able to ssh to localhost)
@@ -34,17 +35,17 @@ before_install:
     - ssh-keyscan -H localhost >> "${HOME}/.ssh/known_hosts"
 
     # Build the docker image if needed
-    - .travis-data/before_install.sh
+    - .ci/before_install.sh
 
 install:
     # Upgrade pip setuptools and wheel to be able to run the next command
     - pip install -U pip wheel setuptools
     # Install AiiDA with some optional dependencies
-    - pip install .[rest,docs,atomic_tools,testing,dev_precommit]
+    - if [ "$TEST_TYPE" == "docs" ]; then pip install . && pip install -r docs/requirements_for_rtd.txt; else pip install .[all]; fi
 
 env:
 ## Build matrix to test both backends, and the docs
-## I still let it create the test backend for django 
+## I still let it create the test backend for django
 ## also when building the docs
 ## because otherwise the code would complain. Also, I need latex.
 - TEST_TYPE="pre-commit"
@@ -54,14 +55,14 @@ env:
 
 
 before_script:
-    - .travis-data/setup_profiles.sh
-    # make the time between tests shorter to speed-up tests
-    # This script might need to be adapted when changing the logic
-    # of the daemon loops or the schema of the config.json file
-    - if [ "$TEST_TYPE" == "tests" ] ; then .travis-data/set_daemon_times.py $TEST_AIIDA_BACKEND ; fi
-    - .travis-data/before_script.sh
+    - .ci/setup_profiles.sh
+    - .ci/before_script.sh
 
-script: .travis-data/test_script.sh
+script: .ci/test_script.sh
+
+after_success:
+  # upload coverage report to codecov.io
+  - if [ "$TEST_TYPE" == "tests" ]; then codecov; fi
 
 git:
   depth: 3

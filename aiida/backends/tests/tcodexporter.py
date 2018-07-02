@@ -16,13 +16,13 @@ from aiida.backends.testbase import AiidaTestCase
 from aiida.common.links import LinkType
 
 def has_nwchem_plugin():
-    from aiida.common.pluginloader import get_plugin
-    from aiida.common.exceptions import MissingPluginError
+    from aiida.common.exceptions import MissingEntryPointError
+    from aiida.plugins.entry_point import load_entry_point
     from aiida.tools.dbexporters.tcod_plugins import BaseTcodtranslator
 
     try:
-        get_plugin('tools.dbexporters.tcod_plugins', 'nwchem.nwcpymatgen')
-    except MissingPluginError:
+        load_entry_point('aiida.tools.dbexporters.tcod_plugins', 'nwchem.nwcpymatgen')
+    except MissingEntryPointError:
         return False
 
     return True
@@ -253,10 +253,10 @@ class TestTcodDbExporter(AiidaTestCase):
     def test_nwcpymatgen_translation(self):
         from tcodexporter import FakeObject
         from aiida.orm.data.parameter import ParameterData
-        from aiida.common.pluginloader import get_plugin
+        from aiida.plugins.entry_point import load_entry_point
         from aiida.tools.dbexporters.tcod import translate_calculation_specific_values
 
-        nwchem_plugin = get_plugin('tools.dbexporters.tcod_plugins', 'nwchem.nwcpymatgen')
+        nwchem_plugin = load_entry_point('aiida.tools.dbexporters.tcod_plugins', 'nwchem.nwcpymatgen')
 
         calc = FakeObject({
             "out": {"output":
@@ -464,24 +464,24 @@ class TestTcodDbExporter(AiidaTestCase):
             '_cell_length_b',
             '_cell_length_c',
             '_chemical_formula_sum',
-            '_symmetry_Int_Tables_number',
             '_symmetry_equiv_pos_as_xyz',
-            '_symmetry_space_group_name_H-M',
-            '_symmetry_space_group_name_Hall'
+            '_symmetry_int_tables_number',
+            '_symmetry_space_group_name_h-m',
+            '_symmetry_space_group_name_hall'
         ]
 
         tcod_file_tags = [
             '_tcod_content_encoding_id',
             '_tcod_content_encoding_layer_id',
             '_tcod_content_encoding_layer_type',
-            '_tcod_file_URI',
             '_tcod_file_content_encoding',
             '_tcod_file_contents',
             '_tcod_file_id',
             '_tcod_file_md5sum',
             '_tcod_file_name',
             '_tcod_file_role',
-            '_tcod_file_sha1sum'
+            '_tcod_file_sha1sum',
+            '_tcod_file_uri',
         ]
 
         # Not stored and not to be stored:
@@ -500,7 +500,7 @@ class TestTcodDbExporter(AiidaTestCase):
         v = export_values(td, trajectory_index=1, store=True)
         self.assertEqual(sorted(v['0'].keys()),
                          expected_tags + tcod_file_tags)
-
+        
         # Both stored and expected to be stored:
         td = TrajectoryData(structurelist=structurelist)
         td.store()

@@ -59,12 +59,48 @@ class NodeTranslator(BaseTranslator):
         # basic initialization
         super(NodeTranslator, self).__init__(Class=Class, **kwargs)
 
-        # Extract the default projections from custom_schema if they are defined
-        if self.custom_schema is not None and 'columns' in self.custom_schema:
-            self._default_projections = self.custom_schema['columns'][
-                self.__label__]
-        else:
-            self._default_projections = ['**']
+        self._default_projections = [
+            "id",
+            "label",
+            "type",
+            "ctime",
+            "mtime",
+            "uuid",
+            "user_id",
+            "user_email",
+            "attributes",
+            "extras"
+        ]
+
+        ## node schema
+        # All the values from column_order must present in additional info dict
+        # Note: final schema will contain details for only the fields present in column order
+        self._schema_projections = {
+            "column_order": [
+                "id",
+                "label",
+                "type",
+                "ctime",
+                "mtime",
+                "uuid",
+                "user_id",
+                "user_email",
+                "attributes",
+                "extras"
+            ],
+            "additional_info": {
+                "id": {"is_display": True},
+                "label": {"is_display": False},
+                "type": {"is_display": True},
+                "ctime": {"is_display": True},
+                "mtime": {"is_display": True},
+                "uuid": {"is_display": False},
+                "user_id": {"is_display": False},
+                "user_email": {"is_display": True},
+                "attributes": {"is_display": False},
+                "extras": {"is_display": False}
+            }
+        }
 
         # Inspect the subclasses of NodeTranslator, to avoid hard-coding
         # (should resemble the following tree)
@@ -419,7 +455,7 @@ class NodeTranslator(BaseTranslator):
         :returns: list of calc inputls command
         """
 
-        if node.dbnode.type.startswith("calculation"):
+        if node.type.startswith("calculation"):
             from aiida.restapi.translator.calculation import CalculationTranslator
             return CalculationTranslator.get_retrieved_inputs(node, filename=filename, rtype=rtype)
         return []
@@ -435,7 +471,7 @@ class NodeTranslator(BaseTranslator):
         :returns: list of calc outputls command
         """
 
-        if node.dbnode.type.startswith("calculation"):
+        if node.type.startswith("calculation"):
             from aiida.restapi.translator.calculation import CalculationTranslator
             return CalculationTranslator.get_retrieved_outputs(node, filename=filename, rtype=rtype)
         return []
@@ -475,11 +511,12 @@ class NodeTranslator(BaseTranslator):
         else:
             return super(NodeTranslator, self).get_results()
 
-    def get_statistics(self, user_email=None):
-        "Return statistics for a given node"
+    def get_statistics(self, user_pk=None):
+        """Return statistics for a given node"""
+
         from aiida.backends.utils import QueryFactory
         qmanager = QueryFactory()()
-        return qmanager.get_creation_statistics(user_email=user_email)
+        return qmanager.get_creation_statistics(user_pk=user_pk)
 
 
     def get_io_tree(self, uuid_pattern):
@@ -514,11 +551,11 @@ class NodeTranslator(BaseTranslator):
             mainNode = qb.first()[0]
             pk = mainNode.pk
             uuid = mainNode.uuid
-            nodetype = mainNode.dbnode.type
+            nodetype = mainNode.type
             display_type = nodetype.split('.')[-2]
             description = mainNode.get_desc()
             if description == '':
-                description = mainNode.dbnode.type.split('.')[-2]
+                description = mainNode.type.split('.')[-2]
 
             nodes.append({
                 "id": nodeCount,
@@ -545,11 +582,11 @@ class NodeTranslator(BaseTranslator):
                 linktype = input['main--in']['label']
                 pk = node.pk
                 uuid = node.uuid
-                nodetype = node.dbnode.type
+                nodetype = node.type
                 display_type = nodetype.split('.')[-2]
                 description = node.get_desc()
                 if description == '':
-                    description = node.dbnode.type.split('.')[-2]
+                    description = node.type.split('.')[-2]
 
                 nodes.append({
                     "id": nodeCount,
@@ -583,11 +620,11 @@ class NodeTranslator(BaseTranslator):
                 linktype = output['main--out']['label']
                 pk = node.pk
                 uuid = node.uuid
-                nodetype = node.dbnode.type
+                nodetype = node.type
                 display_type = nodetype.split('.')[-2]
                 description = node.get_desc()
                 if description == '':
-                    description = node.dbnode.type.split('.')[-2]
+                    description = node.type.split('.')[-2]
 
                 nodes.append({
                     "id": nodeCount,

@@ -16,10 +16,9 @@ from sqlalchemy.orm.exc import UnmappedClassError
 import aiida.backends.sqlalchemy
 from aiida.common.exceptions import InvalidOperation
 
+
 # Taken from
 # https://github.com/mitsuhiko/flask-sqlalchemy/blob/master/flask_sqlalchemy/__init__.py#L491
-
-
 
 
 class _QueryProperty(object):
@@ -63,13 +62,19 @@ class _AiidaQuery(orm.Query):
 
 from aiida.backends.sqlalchemy import get_scoped_session
 
-class Model(object):
 
+class Model(object):
     query = _QueryProperty()
 
     session = _SessionProperty()
 
     def save(self, commit=True):
+        """
+        Emulate the behavior of Django's save() method
+
+        :param commit: whether to do a commit or just add to the session
+        :return: the SQLAlchemy instance
+        """
         sess = get_scoped_session()
         sess.add(self)
         if commit:
@@ -77,8 +82,15 @@ class Model(object):
         return self
 
     def delete(self, commit=True):
+        """
+        Emulate the behavior of Django's delete() method
+
+        :param commit: whether to do a commit or just remover from the session
+        """
         sess = get_scoped_session()
         sess.delete(self)
         if commit:
             sess.commit()
+
+
 Base = declarative_base(cls=Model, name='Model')

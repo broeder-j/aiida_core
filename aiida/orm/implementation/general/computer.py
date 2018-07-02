@@ -21,6 +21,7 @@ from aiida.common.exceptions import (
 
 from aiida.common.utils import classproperty
 from aiida.common.utils import abstractclassmethod, abstractstaticmethod
+from aiida.common.exceptions import NotExistent
 
 
 class AbstractComputer(object):
@@ -174,23 +175,114 @@ class AbstractComputer(object):
         """
         pass
 
-    @abstractmethod
     def __init__(self, **kwargs):
-        pass
+        from aiida.orm.backend import construct_backend
+        super(AbstractComputer, self).__init__()
+        self._backend = construct_backend()
+
+    @property
+    def backend(self):
+        return self._backend
 
     @abstractmethod
     def set(self, **kwargs):
         pass
 
-    @abstractstaticmethod
-    def get_db_columns():
+    @staticmethod
+    def get_schema():
         """
-        This method returns a list with the column names and types of the
-        table
-        corresponding to this class.
-        :return: a list with the names of the columns
+        Every node property contains:
+            - display_name: display name of the property
+            - help text: short help text of the property
+            - is_foreign_key: is the property foreign key to other type of the node
+            - type: type of the property. e.g. str, dict, int
+
+        :return: get schema of the computer
         """
-        pass
+        return {
+            "description": {
+                "display_name": "Description",
+                "help_text": "short description of the Computer",
+                "is_foreign_key": False,
+                "type": "str"
+            },
+            "enabled": {
+                "display_name": "Enabled",
+                "help_text": "True(False) if the computer is(not) enabled to run jobs",
+                "is_foreign_key": False,
+                "type": "bool"
+            },
+            "hostname": {
+                "display_name": "Host",
+                "help_text": "Name of the host",
+                "is_foreign_key": False,
+                "type": "str"
+            },
+            "id": {
+                "display_name": "Id",
+                "help_text": "Id of the object",
+                "is_foreign_key": False,
+                "type": "int"
+            },
+            "name": {
+                "display_name": "Name",
+                "help_text": "Name of the object",
+                "is_foreign_key": False,
+                "type": "str"
+            },
+            "scheduler_type": {
+                "display_name": "Scheduler",
+                "help_text": "Scheduler type",
+                "is_foreign_key": False,
+                "type": "str",
+                "valid_choices": {
+                    "direct": {
+                        "doc": "Support for the direct execution bypassing schedulers."
+                    },
+                    "pbsbaseclasses.PbsBaseClass": {
+                        "doc": "Base class with support for the PBSPro scheduler"
+                    },
+                    "pbspro": {
+                        "doc": "Subclass to support the PBSPro scheduler"
+                    },
+                    "sge": {
+                        "doc": "Support for the Sun Grid Engine scheduler and its variants/forks (Son of Grid Engine, Oracle Grid Engine, ...)"
+                    },
+                    "slurm": {
+                        "doc": "Support for the SLURM scheduler (http://slurm.schedmd.com/)."
+                    },
+                    "torque": {
+                        "doc": "Subclass to support the Torque scheduler.."
+                    }
+                }
+            },
+            "transport_params": {
+                "display_name": "",
+                "help_text": "Transport Parameters",
+                "is_foreign_key": False,
+                "type": "str"
+            },
+            "transport_type": {
+                "display_name": "Transport type",
+                "help_text": "Transport Type",
+                "is_foreign_key": False,
+                "type": "str",
+                "valid_choices": {
+                    "local": {
+                        "doc": "Support copy and command execution on the same host on which AiiDA is running via direct file copy and execution commands."
+                    },
+                    "ssh": {
+                        "doc": "Support connection, command execution and data transfer to remote computers via SSH+SFTP."
+                    }
+                }
+            },
+            "uuid": {
+                "display_name": "Unique ID",
+                "help_text": "Universally Unique Identifier",
+                "is_foreign_key": False,
+                "type": "unicode"
+            }
+        }
 
     @abstractclassmethod
     def list_names(cls):
@@ -209,6 +301,11 @@ class AbstractComputer(object):
 
     @abstractproperty
     def to_be_stored(self):
+        """
+        Is it already stored or not?
+
+        :return: Boolean
+        """
         pass
 
     @abstractclassmethod
@@ -452,7 +549,6 @@ class AbstractComputer(object):
         self._workdir_validator(string)
         self.set_workdir(string)
 
-
     def _get_shebang_string(self):
         return self.get_shebang()
 
@@ -693,6 +789,35 @@ class AbstractComputer(object):
     def set_transport_params(self, val):
         pass
 
+    def get_transport(self, user=None):
+        """
+        Return a Tranport class, configured with all correct parameters.
+        The Transport is closed (meaning that if you want to run any operation with
+        it, you have to open it first (i.e., e.g. for a SSH tranport, you have
+        to open a connection). To do this you can call ``transport.open()``, or simply
+        run within a ``with`` statement::
+
+           transport = Computer.get_transport()
+           with transport:
+               print(transport.whoami())
+
+        :param user: if None, try to obtain a transport for the default user.
+            Otherwise, pass a valid User.
+
+        :return: a (closed) Transport, already configured with the connection
+            parameters to the supercomputer, as configured with ``verdi computer configure``
+            for the user specified as a parameter ``user``.
+        """
+        from aiida.orm.backend import construct_backend
+        backend = construct_backend()
+        if user is None:
+            authinfo = backend.authinfos.get(self, backend.users.get_automatic_user())
+        else:
+            authinfo = backend.authinfos.get(self, user)
+        transport = authinfo.get_transport()
+
+        return transport
+
     @abstractmethod
     def get_workdir(self):
         pass
@@ -748,43 +873,34 @@ class AbstractComputer(object):
     def is_enabled(self):
         pass
 
-    @abstractmethod
-    def get_dbauthinfo(self, user):
+    def get_authinfo(self, user):
         """
-        Return the aiida.backends.djsite.db.models.DbAuthInfo instance for the
+        Return the aiida.orm.authinfo.AuthInfo instance for the
         given user on this computer, if the computer
-        is not configured for the given user.
+        is configured for the given user.
 
-        :param user: a DbUser instance.
-        :return: a aiida.backends.djsite.db.models.DbAuthInfo instance
+        :param user: a User instance.
+        :return: a AuthInfo instance
         :raise NotExistent: if the computer is not configured for the given
             user.
         """
-        pass
+        return self.backend.authinfos.get(computer=self, user=user)
 
-    @abstractmethod
     def is_user_configured(self, user):
-        """
-        Return True if the computer is configured for the given user,
-        False otherwise.
+        try:
+            self.get_authinfo(user)
+            return True
+        except NotExistent:
+            return False
 
-        :param user: a DbUser instance.
-        :return: a boolean.
-        """
-        pass
-
-    @abstractmethod
     def is_user_enabled(self, user):
-        """
-        Return True if the computer is enabled for the given user (looking only
-        at the per-user setting: the computer could still be globally disabled).
-
-        :note: Return False also if the user is not configured for the computer.
-
-        :param user: a DbUser instance.
-        :return: a boolean.
-        """
-        pass
+        try:
+            authinfo = self.get_authinfo(user)
+            return authinfo.enabled
+        except NotExistent:
+            # Return False if the user is not configured (in a sense,
+            # it is disabled for that user)
+            return False
 
     @abstractmethod
     def set_enabled_state(self, enabled):

@@ -14,7 +14,7 @@ from aiida.orm import load_node
 from aiida.common.exceptions import ModificationNotAllowed
 from aiida.backends.testbase import AiidaTestCase
 import unittest
-
+from aiida.common.utils import HiddenPrints
 
 
 def has_seekpath():
@@ -147,6 +147,7 @@ class TestCifData(AiidaTestCase):
     from aiida.orm.data.structure import has_ase, has_pymatgen, has_spglib, \
         get_pymatgen_version
     from distutils.version import StrictVersion
+    
 
     valid_sample_cif_str = '''
         data_test
@@ -313,6 +314,10 @@ _cell_angle_alpha 90
 _cell_angle_beta  90
 _cell_angle_gamma 90
 loop_
+_symmetry_equiv_pos_site_id
+_symmetry_equiv_pos_as_xyz
+1 +x,+y,+z
+loop_
 _atom_site_label
 _atom_site_fract_x
 _atom_site_fract_y
@@ -382,10 +387,6 @@ O 0.5 0.5 0.5
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     @unittest.skipIf(not has_pycifrw(), "Unable to import PyCifRW")
     @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
-    @unittest.skipIf(has_pymatgen() and
-                     StrictVersion(get_pymatgen_version()) !=
-                     StrictVersion('4.5.3'),
-                     "Mismatch in the version of pymatgen (expected 4.5.3)")
     def test_ase_primitive_and_conventional_cells_pymatgen(self):
         """
         Checking the number of atoms per primitive/conventional cell
@@ -408,6 +409,18 @@ _cell_length_a                   4.395
 _cell_length_b                   4.395
 _cell_length_c                   30.440
 _cod_database_code               9012064
+loop_
+_symmetry_equiv_pos_as_xyz
+x,y,z
+2/3+x,1/3+y,1/3+z
+1/3+x,2/3+y,2/3+z
+x,x-y,z
+2/3+x,1/3+x-y,1/3+z
+1/3+x,2/3+x-y,2/3+z
+y,x,-z
+2/3+y,1/3+x,1/3-z
+1/3+y,2/3+x,2/3-z
+-x+y,y,z
 loop_
 _atom_site_label
 _atom_site_fract_x
@@ -447,7 +460,8 @@ Te2 0.00000 0.00000 0.79030 0.01912
                 '_publ_section_title': 'Test CIF'
             }
         ]
-        lines = pycifrw_from_cif(datablocks).WriteOut().split('\n')
+        with HiddenPrints():
+            lines = pycifrw_from_cif(datablocks).WriteOut().split('\n')
         non_comments = []
         for line in lines:
             if not re.search('^#', line):
@@ -471,7 +485,8 @@ _publ_section_title                     'Test CIF'
 '''))
 
         loops = {'_atom_site': ['_atom_site_label', '_atom_site_occupancy']}
-        lines = pycifrw_from_cif(datablocks, loops).WriteOut().split('\n')
+        with HiddenPrints():
+            lines = pycifrw_from_cif(datablocks, loops).WriteOut().split('\n')
         non_comments = []
         for line in lines:
             if not re.search('^#', line):
@@ -488,6 +503,49 @@ loop_
 
 _publ_section_title                     'Test CIF'
 '''))
+
+    @unittest.skipIf(not has_pycifrw(), "Unable to import PyCifRW")
+    def test_pycifrw_syntax(self):
+        """
+        Tests CifData.pycifrw_from_cif() - check syntax pb in PyCifRW 3.6
+        """
+        from aiida.orm.data.cif import pycifrw_from_cif
+        import re
+
+        datablocks = [
+            {
+                '_tag': '[value]',
+            }
+        ]
+        with HiddenPrints():
+            lines = pycifrw_from_cif(datablocks).WriteOut().split('\n')
+        non_comments = []
+        for line in lines:
+            if not re.search('^#', line):
+                non_comments.append(line)
+        self.assertEquals(simplify("\n".join(non_comments)),
+                          simplify('''
+data_0
+_tag                                    '[value]'
+'''))
+
+    @unittest.skipIf(not has_pycifrw(), "Unable to import PyCifRW")
+    def test_cif_with_long_line(self):
+        """
+        Tests CifData - check that long lines (longer than 2048 characters)
+        are supported.
+        Should not raise any error.
+        """
+        import tempfile
+        from aiida.orm.data.cif import CifData
+
+        with tempfile.NamedTemporaryFile() as f:
+            f.write('''
+data_0
+_tag   {}
+ '''.format('a'*5000))
+            f.flush()
+            _ = CifData(file=f.name)
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     @unittest.skipIf(not has_pycifrw(), "Unable to import PyCifRW")
@@ -590,7 +648,7 @@ _publ_section_title                     'Test CIF'
             f.flush()
             a = CifData(file=f.name)
 
-        self.assertEqual(a.has_attached_hydrogens(), False)
+        self.assertEqual(a.has_attached_hydrogens, False)
 
         with tempfile.NamedTemporaryFile() as f:
             f.write('''
@@ -614,7 +672,7 @@ _publ_section_title                     'Test CIF'
             f.flush()
             a = CifData(file=f.name)
 
-        self.assertEqual(a.has_attached_hydrogens(), True)
+        self.assertEqual(a.has_attached_hydrogens, True)
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     @unittest.skipIf(not has_pycifrw(), "Unable to import PyCifRW")
@@ -716,7 +774,7 @@ _publ_section_title                     'Test CIF'
             f.flush()
 
             default = CifData(file=f.name)
-            default2 = CifData(file=f.name, scan_type='default')
+            default2 = CifData(file=f.name, scan_type='standard')
             self.assertEquals(default._prepare_cif(), default2._prepare_cif())
 
             flex = CifData(file=f.name, scan_type='flex')
@@ -849,6 +907,14 @@ class TestKindValidSymbols(AiidaTestCase):
 
         _ = Kind(symbols=['H', 'He'], weights=[0.5, 0.5])
 
+    def test_unknown_symbol(self):
+        """
+        Should test if symbol X is valid and defined
+        in the elements dictionary.
+        """
+        from aiida.orm.data.structure import Kind
+
+        _ = Kind(symbols=['X'])
 
 class TestSiteValidWeights(AiidaTestCase):
     """
@@ -996,12 +1062,21 @@ class TestKindTestGeneral(AiidaTestCase):
         a = Kind(symbols='Ba')
         self.assertEqual(a.name, 'Ba')
 
+        a = Kind(symbols='X')
+        self.assertEqual(a.name, 'X')
+        
         a = Kind(symbols=('Si', 'Ge'), weights=(1. / 3., 2. / 3.))
         self.assertEqual(a.name, 'GeSi')
 
+        a = Kind(symbols=('Si', 'X'), weights=(1. / 3., 2. / 3.))
+        self.assertEqual(a.name, 'SiX')
+        
         a = Kind(symbols=('Si', 'Ge'), weights=(0.4, 0.5))
         self.assertEqual(a.name, 'GeSiX')
 
+        a = Kind(symbols=('Si', 'X'), weights=(0.4, 0.5))
+        self.assertEqual(a.name, 'SiXX')
+        
         # Manually setting the name of the species
         a.name = 'newstring'
         self.assertEqual(a.name, 'newstring')
@@ -1194,6 +1269,7 @@ class TestStructureData(AiidaTestCase):
     Tests the creation of StructureData objects (cell and pbc).
     """
     from aiida.orm.data.structure import has_ase, has_spglib
+    from aiida.orm.data.cif import has_pycifrw
 
     def test_cell_ok_and_atoms(self):
         """
@@ -1230,6 +1306,42 @@ class TestStructureData(AiidaTestCase):
         self.assertFalse(a.is_alloy())
         self.assertTrue(a.has_vacancies())
 
+    def test_cell_ok_and_unknown_atoms(self):
+        """
+        Test the creation of a cell and the appending of atoms, including
+        the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        cell = [[2., 0., 0.], [0., 2., 0.], [0., 0., 2.]]
+
+        a = StructureData(cell=cell)
+        out_cell = a.cell
+        self.assertAlmostEquals(cell, out_cell)
+
+        a.append_atom(position=(0., 0., 0.), symbols=['Ba'])
+        a.append_atom(position=(1., 1., 1.), symbols=['X'])
+        a.append_atom(position=(1.2, 1.4, 1.6), symbols=['X'])
+        self.assertFalse(a.is_alloy())
+        self.assertFalse(a.has_vacancies())
+        # There should be only two kinds! (two atoms of kind X should
+        # belong to the same kind)
+        self.assertEquals(len(a.kinds), 2)
+
+        a.append_atom(position=(0.5, 1., 1.5), symbols=['O', 'C'],
+                      weights=[0.5, 0.5])
+        self.assertTrue(a.is_alloy())
+        self.assertFalse(a.has_vacancies())
+
+        a.append_atom(position=(0.5, 1., 1.5), symbols=['O'], weights=[0.5])
+        self.assertTrue(a.is_alloy())
+        self.assertTrue(a.has_vacancies())
+
+        a.clear_kinds()
+        a.append_atom(position=(0.5, 1., 1.5), symbols=['X'], weights=[0.5])
+        self.assertFalse(a.is_alloy())
+        self.assertTrue(a.has_vacancies())
+        
     def test_kind_1(self):
         """
         Test the management of kinds (automatic detection of kind of
@@ -1248,6 +1360,24 @@ class TestStructureData(AiidaTestCase):
         self.assertEqual(set(k.name for k in a.kinds),
                          set(('Ba', 'Ti')))
 
+    def test_kind_1_unknown(self):
+        """
+        Test the management of kinds (automatic detection of kind of
+        simple atoms), inluding the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
+
+        a.append_atom(position=(0., 0., 0.), symbols=['X'])
+        a.append_atom(position=(0.5, 0.5, 0.5), symbols=['X'])
+        a.append_atom(position=(1., 1., 1.), symbols=['Ti'])
+
+        self.assertEqual(len(a.kinds), 2)  # I should only have two types
+        # I check for the default names of kinds
+        self.assertEqual(set(k.name for k in a.kinds),
+                         set(('X', 'Ti')))
+        
     def test_kind_2(self):
         """
         Test the management of kinds (manual specification of kind name).
@@ -1265,6 +1395,24 @@ class TestStructureData(AiidaTestCase):
         self.assertEqual(set(k.name for k in kind_list),
                          set(('Ba1', 'Ba2', 'Ti')))
 
+    def test_kind_2_unknown(self):
+        """
+        Test the management of kinds (manual specification of kind name),
+        including the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
+
+        a.append_atom(position=(0., 0., 0.), symbols=['X'], name='X1')
+        a.append_atom(position=(0.5, 0.5, 0.5), symbols=['X'], name='X2')
+        a.append_atom(position=(1., 1., 1.), symbols=['Ti'])
+
+        kind_list = a.kinds
+        self.assertEqual(len(kind_list), 3)  # I should have now three kinds
+        self.assertEqual(set(k.name for k in kind_list),
+                         set(('X1', 'X2', 'Ti')))
+        
     def test_kind_3(self):
         """
         Test the management of kinds (adding an atom with different mass).
@@ -1289,6 +1437,31 @@ class TestStructureData(AiidaTestCase):
         self.assertEqual(len(a.sites), 3)  # and 3 sites
         self.assertEqual(set(k.name for k in a.kinds), set(('Ba', 'Ba2', 'Ti')))
 
+    def test_kind_3_unknown(self):
+        """
+        Test the management of kinds (adding an atom with different mass),
+        including the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
+
+        a.append_atom(position=(0., 0., 0.), symbols=['X'], mass=100.)
+        with self.assertRaises(ValueError):
+            # Shouldn't allow, I am adding two sites with the same name 'Ba'
+            a.append_atom(position=(0.5, 0.5, 0.5), symbols=['X'],
+                          mass=101., name='X')
+
+            # now it should work because I am using a different kind name
+        a.append_atom(position=(0.5, 0.5, 0.5),
+                      symbols=['X'], mass=101., name='X2')
+
+        a.append_atom(position=(1., 1., 1.), symbols=['Ti'])
+
+        self.assertEqual(len(a.kinds), 3)  # I should have now three types
+        self.assertEqual(len(a.sites), 3)  # and 3 sites
+        self.assertEqual(set(k.name for k in a.kinds), set(('X', 'X2', 'Ti')))
+        
     def test_kind_4(self):
         """
         Test the management of kind (adding an atom with different symbols
@@ -1327,6 +1500,44 @@ class TestStructureData(AiidaTestCase):
 
         self.assertEquals(len(a.kinds), 1)
 
+    def test_kind_4_unknown(self):
+        """
+        Test the management of kind (adding an atom with different symbols
+        or weights), including the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
+
+        a.append_atom(position=(0., 0., 0.), symbols=['X', 'Ti'],
+                      weights=(1., 0.), name='mytype')
+
+        with self.assertRaises(ValueError):
+            # Shouldn't allow, different weights
+            a.append_atom(position=(0.5, 0.5, 0.5), symbols=['X', 'Ti'],
+                          weights=(0.9, 0.1), name='mytype')
+
+        with self.assertRaises(ValueError):
+            # Shouldn't allow, different weights (with vacancy)
+            a.append_atom(position=(0.5, 0.5, 0.5), symbols=['X', 'Ti'],
+                          weights=(0.8, 0.1), name='mytype')
+
+        with self.assertRaises(ValueError):
+            # Shouldn't allow, different symbols list
+            a.append_atom(position=(0.5, 0.5, 0.5), symbols=['X'],
+                          name='mytype')
+
+        with self.assertRaises(ValueError):
+            # Shouldn't allow, different symbols list
+            a.append_atom(position=(0.5, 0.5, 0.5), symbols=['Si', 'Ti'],
+                          weights=(1., 0.), name='mytype')
+
+            # should allow because every property is identical
+        a.append_atom(position=(0., 0., 0.), symbols=['X', 'Ti'],
+                      weights=(1., 0.), name='mytype')
+
+        self.assertEquals(len(a.kinds), 1)
+        
     def test_kind_5(self):
         """
         Test the management of kinds (automatic creation of new kind
@@ -1355,6 +1566,35 @@ class TestStructureData(AiidaTestCase):
                           ['Ba', 'Ti', 'Ti2', 'Ba1'])
         self.assertEquals(len(a.sites), 5)
 
+    def test_kind_5_unknown(self):
+        """
+        Test the management of kinds (automatic creation of new kind
+        if name is not specified and properties are different), including
+        the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
+
+        a.append_atom(position=(0., 0., 0.), symbols='X', mass=100.)
+        a.append_atom(position=(0., 0., 0.), symbols='Ti')
+        # The name does not exist
+        a.append_atom(position=(0., 0., 0.), symbols='Ti', name='Ti2')
+        # The name already exists, but the properties are identical => OK
+        a.append_atom(position=(1., 1., 1.), symbols='Ti', name='Ti2')
+        # The name already exists, but the properties are different!
+        with self.assertRaises(ValueError):
+            a.append_atom(position=(1., 1., 1.), symbols='Ti', mass=100.,
+                          name='Ti2')
+        # Should not complain, should create a new type
+        a.append_atom(position=(0., 0., 0.), symbols='X', mass=150.)
+
+        # There should be 4 kinds, the automatic name for the last one
+        # should be Ba1
+        self.assertEquals([k.name for k in a.kinds],
+                          ['X', 'Ti', 'Ti2', 'X1'])
+        self.assertEquals(len(a.sites), 5)
+        
     def test_kind_5_bis(self):
         """
         Test the management of kinds (automatic creation of new kind
@@ -1383,6 +1623,35 @@ class TestStructureData(AiidaTestCase):
         self.assertEquals(kind_of_each_site,
                           ['Fe', 'Fe', 'Fe', 'Fe1', 'Fe1'])
 
+    def test_kind_5_bis_unknown(self):
+        """
+        Test the management of kinds (automatic creation of new kind
+        if name is not specified and properties are different).
+        This test was failing in, e.g., commit f6a8f4b. This also includes
+        the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+        from aiida.common.constants import elements
+
+        s = StructureData(cell=((6., 0., 0.), (0., 6., 0.), (0., 0., 6.)))
+
+        s.append_atom(symbols='X', position=[0, 0, 0], mass=12)
+        s.append_atom(symbols='X', position=[1, 0, 0], mass=12)
+        s.append_atom(symbols='X', position=[2, 0, 0], mass=12)
+        s.append_atom(symbols='X', position=[2, 0, 0])
+        s.append_atom(symbols='X', position=[4, 0, 0])
+
+        # I expect only two species, the first one with name 'X', mass 12,
+        # and referencing the first three atoms; the second with name
+        # 'X', mass = elements[0]['mass'], and referencing the last two atoms
+        self.assertEquals(
+            set([(k.name, k.mass) for k in s.kinds]),
+            set([('X', 12.0), ('X1', elements[0]['mass'])]))
+
+        kind_of_each_site = [site.kind_name for site in s.sites]
+        self.assertEquals(kind_of_each_site,
+                          ['X', 'X', 'X', 'X1', 'X1'])
+        
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     def test_kind_5_bis_ase(self):
         """
@@ -1418,6 +1687,41 @@ class TestStructureData(AiidaTestCase):
         self.assertEquals(kind_of_each_site,
                           ['Fe', 'Fe', 'Fe', 'Fe1', 'Fe1'])
 
+    @unittest.skipIf(not has_ase(), "Unable to import ase")
+    def test_kind_5_bis_ase_unknown(self):
+        """
+        Same test as test_kind_5_bis_unknown, but using ase
+        """
+        from aiida.orm.data.structure import StructureData
+        import ase
+
+        asecell = ase.Atoms('X5',
+                            cell=((6., 0., 0.), (0., 6., 0.), (0., 0., 6.)))
+        asecell.set_positions([
+            [0, 0, 0],
+            [1, 0, 0],
+            [2, 0, 0],
+            [3, 0, 0],
+            [4, 0, 0],
+        ])
+
+        asecell[0].mass = 12.
+        asecell[1].mass = 12.
+        asecell[2].mass = 12.
+
+        s = StructureData(ase=asecell)
+
+        # I expect only two species, the first one with name 'X', mass 12,
+        # and referencing the first three atoms; the second with name
+        # 'X1', mass = elements[26]['mass'], and referencing the last two atoms
+        self.assertEquals(
+            set([(k.name, k.mass) for k in s.kinds]),
+            set([('X', 12.0), ('X1', asecell[3].mass)]))
+
+        kind_of_each_site = [site.kind_name for site in s.sites]
+        self.assertEquals(kind_of_each_site,
+                          ['X', 'X', 'X', 'X1', 'X1'])
+        
     def test_kind_6(self):
         """
         Test the returning of kinds from the string name (most of the code
@@ -1448,6 +1752,36 @@ class TestStructureData(AiidaTestCase):
         self.assertEqual(k.symbols, ('Ba',))
         self.assertAlmostEqual(k.mass, 150.)
 
+    def test_kind_6_unknown(self):
+        """
+        Test the returning of kinds from the string name (most of the code
+        copied from :py:meth:`.test_kind_5`), including the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
+
+        a.append_atom(position=(0., 0., 0.), symbols='X', mass=100.)
+        a.append_atom(position=(0., 0., 0.), symbols='Ti')
+        # The name does not exist
+        a.append_atom(position=(0., 0., 0.), symbols='Ti', name='Ti2')
+        # The name already exists, but the properties are identical => OK
+        a.append_atom(position=(1., 1., 1.), symbols='Ti', name='Ti2')
+        # Should not complain, should create a new type
+        a.append_atom(position=(0., 0., 0.), symbols='X', mass=150.)
+        # There should be 4 kinds, the automatic name for the last one
+        # should be Ba1 (same check of test_kind_5
+        self.assertEquals([k.name for k in a.kinds],
+                          ['X', 'Ti', 'Ti2', 'X1'])
+        #############################
+        # Here I start the real tests
+        # No such kind
+        with self.assertRaises(ValueError):
+            a.get_kind('Ti3')
+        k = a.get_kind('X1')
+        self.assertEqual(k.symbols, ('X',))
+        self.assertAlmostEqual(k.mass, 150.)
+        
     def test_kind_7(self):
         """
         Test the functions returning the list of kinds, symbols, ...
@@ -1466,6 +1800,25 @@ class TestStructureData(AiidaTestCase):
 
         self.assertEquals(a.get_symbols_set(), set(['Ba', 'Ti', 'O', 'H']))
 
+    def test_kind_7_unknown(self):
+        """
+        Test the functions returning the list of kinds, symbols, ...
+        including the unknown entry.
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
+
+        a.append_atom(position=(0., 0., 0.), symbols='Ba', mass=100.)
+        a.append_atom(position=(0., 0., 0.), symbols='X')
+        # The name does not exist
+        a.append_atom(position=(0., 0., 0.), symbols='X', name='X2')
+        # The name already exists, but the properties are identical => OK
+        a.append_atom(position=(0., 0., 0.), symbols=['O', 'H'],
+                      weights=[0.9, 0.1], mass=15.)
+
+        self.assertEquals(a.get_symbols_set(), set(['Ba', 'X', 'O', 'H']))
+        
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     @unittest.skipIf(not has_spglib(), "Unable to import spglib")
     def test_kind_8(self):
@@ -1603,11 +1956,53 @@ class TestStructureData(AiidaTestCase):
                                       mode="count_compact"),
                           'BaTiO3')
 
+    def test_get_formula_unknown(self):
+        """
+        Tests the generation of formula, including unknown entry.
+        """
+        from aiida.orm.data.structure import get_formula
+
+        self.assertEquals(get_formula(['Ba', 'Ti'] + ['X'] * 3),
+                          'BaTiX3')
+        self.assertEquals(get_formula(['Ba', 'Ti', 'C'] + ['X'] * 3,
+                                      separator=" "),
+                          'C Ba Ti X3')
+        self.assertEquals(get_formula(['X'] * 6 + ['C'] * 6),
+                          'C6X6')
+        self.assertEquals(get_formula(['X'] * 6 + ['C'] * 6,
+                                      mode="hill_compact"),
+                          'CX')
+        self.assertEquals(get_formula((['Ba', 'Ti'] + ['X'] * 3) * 2 + \
+                                      ['Ba'] + ['X'] * 2 + ['O'] * 3,
+                                      mode="group"),
+                          '(BaTiX3)2BaX2O3')
+        self.assertEquals(get_formula((['Ba', 'Ti'] + ['X'] * 3) * 2 + \
+                                      ['Ba'] + ['X'] * 2 + ['O'] * 3,
+                                      mode="group", separator=" "),
+                          '(Ba Ti X3)2 Ba X2 O3')
+        self.assertEquals(get_formula((['Ba', 'Ti'] + ['X'] * 3) * 2 + \
+                                      ['Ba'] + ['Ti'] * 2 + ['X'] * 3,
+                                      mode="reduce"),
+                          'BaTiX3BaTiX3BaTi2X3')
+        self.assertEquals(get_formula((['Ba', 'Ti'] + ['X'] * 3) * 2 + \
+                                      ['Ba'] + ['Ti'] * 2 + ['X'] * 3,
+                                      mode="reduce", separator=", "),
+                          'Ba, Ti, X3, Ba, Ti, X3, Ba, Ti2, X3')
+        self.assertEquals(get_formula((['Ba', 'Ti'] + ['O'] * 3) * 2,
+                                      mode="count"),
+                          'Ba2Ti2O6')
+        self.assertEquals(get_formula((['Ba', 'Ti'] + ['X'] * 3) * 2,
+                                      mode="count_compact"),
+                          'BaTiX3')
+        
+    @unittest.skipIf(not has_ase(), "Unable to import ase")
+    @unittest.skipIf(not has_pycifrw(), "Unable to import PyCifRW")
     def test_get_cif(self):
         """
         Tests the conversion to CifData
         """
         from aiida.orm.data.structure import StructureData
+        import re
 
         a = StructureData(cell=((2., 0., 0.), (0., 2., 0.), (0., 0., 2.)))
 
@@ -1615,25 +2010,14 @@ class TestStructureData(AiidaTestCase):
         a.append_atom(position=(0.5, 0.5, 0.5), symbols=['Ba'])
         a.append_atom(position=(1., 1., 1.), symbols=['Ti'])
 
-        try:
-            c = a._get_cif()
-        # Exception thrown if ase can't be found
-        except ImportError:
-            return
-        self.assertEquals(simplify(c._prepare_cif()[0]),
-                          simplify("""#\#CIF1.1
-##########################################################################
-#               Crystallographic Information Format file
-#               Produced by PyCifRW module
-#
-#  This is a CIF file.  CIF has been adopted by the International
-#  Union of Crystallography as the standard for data archiving and
-#  transmission.
-#
-#  For information on this file format, follow the CIF links at
-#  http://www.iucr.org
-##########################################################################
-
+        c = a._get_cif()
+        lines = c._prepare_cif()[0].split('\n')
+        non_comments = []
+        for line in lines:
+            if not re.search('^#', line):
+                non_comments.append(line)
+        self.assertEquals(simplify("\n".join(non_comments)),
+                          simplify("""
 data_0
 loop_
   _atom_site_label
@@ -1804,7 +2188,7 @@ class TestStructureDataReload(AiidaTestCase):
 
         a.store()
 
-        b = StructureData(dbnode=a.dbnode)
+        b = load_node(uuid=a.uuid)
 
         for i in range(3):
             for j in range(3):
@@ -1893,6 +2277,9 @@ class TestStructureDataFromAse(AiidaTestCase):
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     def test_ase(self):
+        """
+        Tests roundtrip ASE -> StructureData -> ASE
+        """
         from aiida.orm.data.structure import StructureData
         import ase
 
@@ -1918,6 +2305,9 @@ class TestStructureDataFromAse(AiidaTestCase):
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     def test_conversion_of_types_1(self):
+        """
+        Tests roundtrip ASE -> StructureData -> ASE, with tags
+        """
         from aiida.orm.data.structure import StructureData
         import ase
 
@@ -1948,6 +2338,10 @@ class TestStructureDataFromAse(AiidaTestCase):
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     def test_conversion_of_types_2(self):
+        """
+        Tests roundtrip ASE -> StructureData -> ASE, with tags, and 
+        changing the atomic masses
+        """
         from aiida.orm.data.structure import StructureData
         import ase
 
@@ -1980,6 +2374,9 @@ class TestStructureDataFromAse(AiidaTestCase):
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     def test_conversion_of_types_3(self):
+        """
+        Tests StructureData -> ASE, with all sorts of kind names
+        """
         from aiida.orm.data.structure import StructureData
 
         a = StructureData()
@@ -2011,6 +2408,9 @@ class TestStructureDataFromAse(AiidaTestCase):
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     def test_conversion_of_types_4(self):
+        """
+        Tests ASE -> StructureData -> ASE, in particular conversion tags / kind names
+        """
         from aiida.orm.data.structure import StructureData
         import ase
 
@@ -2021,9 +2421,18 @@ class TestStructureDataFromAse(AiidaTestCase):
         s = StructureData(ase=atoms)
         kindnames = set([k.name for k in s.kinds])
         self.assertEquals(kindnames, set(['Fe', 'Fe1', 'Fe4']))
+        # check roundtrip ASE -> StructureData -> ASE
+        atoms2 = s.get_ase()
+        self.assertEquals(list(atoms2.get_tags()),list(atoms.get_tags()))
+        self.assertEquals(list(atoms2.get_chemical_symbols()),list(atoms.get_chemical_symbols()))
+        self.assertEquals(atoms2.get_chemical_formula(),'Fe5')
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     def test_conversion_of_types_5(self):
+        """
+        Tests ASE -> StructureData -> ASE, in particular conversion tags / kind names
+        (subtle variation of test_conversion_of_types_4)
+        """
         from aiida.orm.data.structure import StructureData
         import ase
 
@@ -2034,6 +2443,34 @@ class TestStructureDataFromAse(AiidaTestCase):
         s = StructureData(ase=atoms)
         kindnames = set([k.name for k in s.kinds])
         self.assertEquals(kindnames, set(['Fe', 'Fe1', 'Fe4']))
+        # check roundtrip ASE -> StructureData -> ASE
+        atoms2 = s.get_ase()
+        self.assertEquals(list(atoms2.get_tags()),list(atoms.get_tags()))
+        self.assertEquals(list(atoms2.get_chemical_symbols()),list(atoms.get_chemical_symbols()))
+        self.assertEquals(atoms2.get_chemical_formula(),'Fe5')
+
+    @unittest.skipIf(not has_ase(), "Unable to import ase")
+    def test_conversion_of_types_6(self):
+        """
+        Tests roundtrip StructureData -> ASE -> StructureData, with tags/kind names
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=[[4,0,0],[0,4,0],[0,0,4]])
+        a.append_atom(position=(0,0,0), symbols='Ni', name='Ni1')
+        a.append_atom(position=(2,2,2), symbols='Ni', name='Ni2')
+        a.append_atom(position=(1,0,1), symbols='Cl', name='Cl')
+        a.append_atom(position=(1,3,1), symbols='Cl', name='Cl')
+        
+        b = a.get_ase()
+        self.assertEquals(b.get_chemical_symbols(), ['Ni', 'Ni', 'Cl','Cl'])
+        self.assertEquals(list(b.get_tags()), [1, 2, 0, 0])
+        
+        c = StructureData(ase=b)
+        self.assertEquals(c.get_site_kindnames(), ['Ni1', 'Ni2', 'Cl','Cl'])
+        self.assertEquals([k.symbol for k in c.kinds], ['Ni', 'Ni', 'Cl'])
+        self.assertEquals([s.position for s in c.sites],
+                          [(0.,0.,0.),(2.,2.,2.),(1.,0.,1.),(1.,3.,1.)])
 
 
 class TestStructureDataFromPymatgen(AiidaTestCase):
@@ -2045,13 +2482,10 @@ class TestStructureDataFromPymatgen(AiidaTestCase):
     from aiida.orm.data.structure import has_pymatgen, get_pymatgen_version
 
     @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
-    @unittest.skipIf(has_pymatgen() and
-                     StrictVersion(get_pymatgen_version()) !=
-                     StrictVersion('4.5.3'),
-                    "Mismatch in the version of pymatgen (expected 4.5.3)")
     def test_1(self):
         """
-        Test's imput is derived from COD entry 9011963, processed with
+        Tests roundtrip pymatgen -> StructureData -> pymatgen
+        Test's input is derived from COD entry 9011963, processed with
         cif_mark_disorder (from cod-tools) and abbreviated.
         """
         from aiida.orm.data.structure import StructureData
@@ -2117,12 +2551,9 @@ class TestStructureDataFromPymatgen(AiidaTestCase):
         self.assertEquals(dict1, dict2)
 
     @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
-    @unittest.skipIf(has_pymatgen() and
-                     StrictVersion(get_pymatgen_version()) !=
-                     StrictVersion('4.5.3'),
-                     "Mismatch in the version of pymatgen (expected 4.5.3)")
     def test_2(self):
         """
+        Tests xyz -> pymatgen -> StructureData
         Input source: http://pymatgen.org/_static/Molecule.html
         """
         from aiida.orm.data.structure import StructureData
@@ -2163,6 +2594,78 @@ class TestStructureDataFromPymatgen(AiidaTestCase):
                 [round(x, 2) for x in list(struct.sites[4].position)],
                 [5.77, 5.89, 5.73])
 
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_partial_occ_and_spin(self):
+        """
+        Tests pymatgen -> StructureData, with partial occupancies and spins.
+        This should raise a ValueError.
+        """
+        from aiida.orm.data.structure import StructureData
+        import pymatgen
+        
+        Fe_spin_up = pymatgen.structure.Specie('Fe',0,properties={'spin':1})
+        Mn_spin_up = pymatgen.structure.Specie('Mn',0,properties={'spin':1})
+        Fe_spin_down = pymatgen.structure.Specie('Fe',0,properties={'spin':-1})
+        Mn_spin_down = pymatgen.structure.Specie('Mn',0,properties={'spin':-1})
+        FeMn1 = pymatgen.Composition({Fe_spin_up:0.5,Mn_spin_up:0.5})
+        FeMn2 = pymatgen.Composition({Fe_spin_down:0.5,Mn_spin_down:0.5})
+        a = pymatgen.structure.Structure(lattice=[[4,0,0],[0,4,0],[0,0,4]],
+                                         species=[FeMn1,FeMn2],
+                                         coords=[[0,0,0],[0.5,0.5,0.5]])
+                
+        with self.assertRaises(ValueError): 
+            StructureData(pymatgen=a)
+        
+        # same, with vacancies
+        Fe1 = pymatgen.Composition({Fe_spin_up:0.5})
+        Fe2 = pymatgen.Composition({Fe_spin_down:0.5})
+        a = pymatgen.structure.Structure(lattice=[[4,0,0],[0,4,0],[0,0,4]],
+                                         species=[Fe1,Fe2],
+                                         coords=[[0,0,0],[0.5,0.5,0.5]])
+
+        with self.assertRaises(ValueError): 
+            StructureData(pymatgen=a)
+
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_multiple_kinds_partial_occupancies(self):
+        """
+        Tests that a structure with multiple sites with the same element but different
+        partial occupancies, get their own unique kind name
+        """
+        from aiida.orm.data.structure import StructureData
+        import pymatgen
+
+        Mg1 = pymatgen.structure.Composition({'Mg': 0.50})
+        Mg2 = pymatgen.structure.Composition({'Mg': 0.25})
+
+        a = pymatgen.structure.Structure(
+            lattice=[[4, 0, 0], [0, 4, 0], [0, 0, 4]],
+            species=[Mg1, Mg2],
+            coords=[[0, 0, 0], [0.5, 0.5, 0.5]]
+        )
+
+        structure = StructureData(pymatgen=a)
+
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_multiple_kinds_alloy(self):
+        """
+        Tests that a structure with multiple sites with the same alloy symbols but different
+        weights, get their own unique kind name
+        """
+        from aiida.orm.data.structure import StructureData
+        import pymatgen
+
+        alloy_one = pymatgen.structure.Composition({'Mg': 0.25, 'Al': 0.75})
+        alloy_two = pymatgen.structure.Composition({'Mg': 0.45, 'Al': 0.55})
+
+        a = pymatgen.structure.Structure(
+            lattice=[[4, 0, 0], [0, 4, 0], [0, 0, 4]],
+            species=[alloy_one, alloy_two],
+            coords=[[0, 0, 0], [0.5, 0.5, 0.5]]
+        )
+
+        structure = StructureData(pymatgen=a)
+
 
 class TestPymatgenFromStructureData(AiidaTestCase):
     """
@@ -2174,13 +2677,9 @@ class TestPymatgenFromStructureData(AiidaTestCase):
         get_pymatgen_version
 
     @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
-    @unittest.skipIf(has_pymatgen() and
-                     StrictVersion(get_pymatgen_version()) !=
-                     StrictVersion('4.5.3'),
-                     "Mismatch in the version of pymatgen (expected 4.5.3)")
     def test_1(self):
         """
-        Test the check of periodic boundary conditions.
+        Tests the check of periodic boundary conditions.
         """
         from aiida.orm.data.structure import StructureData
 
@@ -2195,11 +2694,10 @@ class TestPymatgenFromStructureData(AiidaTestCase):
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
-    @unittest.skipIf(has_pymatgen() and
-                     StrictVersion(get_pymatgen_version()) !=
-                     StrictVersion('4.5.3'),
-                     "Mismatch in the version of pymatgen (expected 4.5.3)")
     def test_2(self):
+        """
+        Tests ASE -> StructureData -> pymatgen
+        """
         from aiida.orm.data.structure import StructureData
         import ase
 
@@ -2229,13 +2727,10 @@ class TestPymatgenFromStructureData(AiidaTestCase):
 
     @unittest.skipIf(not has_ase(), "Unable to import ase")
     @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
-    @unittest.skipIf(has_pymatgen() and
-                     StrictVersion(get_pymatgen_version()) !=
-                     StrictVersion('4.5.3'),
-                     "Mismatch in the version of pymatgen (expected 4.5.3)")
     def test_3(self):
         """
-        Test the conversion of StructureData to pymatgen's Molecule.
+        Tests the conversion of StructureData to pymatgen's Molecule
+        (ASE -> StructureData -> pymatgen)
         """
         from aiida.orm.data.structure import StructureData
         import ase
@@ -2260,7 +2755,182 @@ class TestPymatgenFromStructureData(AiidaTestCase):
                            [2.0, 2.0, 2.0],
                            [3.0, 3.0, 3.0]])
 
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_roundtrip(self):
+        """
+        Tests roundtrip StructureData -> pymatgen -> StructureData
+        (no spins)
+        """
+        from aiida.orm.data.structure import StructureData
 
+        a = StructureData(cell=[[5.6,0,0],[0,5.6,0],[0,0,5.6]])
+        a.append_atom(position=(0,0,0), symbols='Cl')
+        a.append_atom(position=(2.8,0,2.8), symbols='Cl')
+        a.append_atom(position=(0,2.8,2.8), symbols='Cl')
+        a.append_atom(position=(2.8,2.8,0), symbols='Cl')
+        a.append_atom(position=(2.8,2.8,2.8), symbols='Na')
+        a.append_atom(position=(2.8,0,0), symbols='Na')
+        a.append_atom(position=(0,2.8,0), symbols='Na')
+        a.append_atom(position=(0,0,2.8), symbols='Na')
+        
+        b = a.get_pymatgen()
+        c = StructureData(pymatgen=b)
+        self.assertEquals(c.get_site_kindnames(), ['Cl','Cl','Cl','Cl','Na','Na','Na','Na'])
+        self.assertEquals([k.symbol for k in c.kinds], ['Cl','Na'])
+        self.assertEquals([s.position for s in c.sites],
+                          [(0.,0.,0.),(2.8,0,2.8),(0,2.8,2.8),(2.8,2.8,0),(2.8,2.8,2.8),(2.8,0,0),(0,2.8,0),(0,0,2.8)])
+
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_roundtrip_kindnames(self):
+        """
+        Tests roundtrip StructureData -> pymatgen -> StructureData
+        (no spins, but with all kind of kind names)
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=[[5.6,0,0],[0,5.6,0],[0,0,5.6]])
+        a.append_atom(position=(0,0,0), symbols='Cl',name='Cl')
+        a.append_atom(position=(2.8,0,2.8), symbols='Cl',name='Cl10')
+        a.append_atom(position=(0,2.8,2.8), symbols='Cl',name='Cla')
+        a.append_atom(position=(2.8,2.8,0), symbols='Cl',name='cl_x')
+        a.append_atom(position=(2.8,2.8,2.8), symbols='Na',name='Na1')
+        a.append_atom(position=(2.8,0,0), symbols='Na',name='Na2')
+        a.append_atom(position=(0,2.8,0), symbols='Na',name='Na_Na')
+        a.append_atom(position=(0,0,2.8), symbols='Na',name='Na4')
+        
+        b = a.get_pymatgen()
+        self.assertEquals([site.properties['kind_name'] for site in b.sites],
+                         ['Cl','Cl10','Cla','cl_x','Na1','Na2','Na_Na','Na4'])
+        
+        c = StructureData(pymatgen=b)
+        self.assertEquals(c.get_site_kindnames(), ['Cl','Cl10','Cla','cl_x','Na1','Na2','Na_Na','Na4'])
+        self.assertEquals(c.get_symbols_set(), set(['Cl','Na']))
+        self.assertEquals([s.position for s in c.sites],
+                          [(0.,0.,0.),(2.8,0,2.8),(0,2.8,2.8),(2.8,2.8,0),(2.8,2.8,2.8),(2.8,0,0),(0,2.8,0),(0,0,2.8)])
+
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_roundtrip_spins(self):
+        """
+        Tests roundtrip StructureData -> pymatgen -> StructureData
+        (with spins)
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=[[5.6,0,0],[0,5.6,0],[0,0,5.6]])
+        a.append_atom(position=(0,0,0), symbols='Mn',name='Mn1')
+        a.append_atom(position=(2.8,0,2.8), symbols='Mn',name='Mn1')
+        a.append_atom(position=(0,2.8,2.8), symbols='Mn',name='Mn1')
+        a.append_atom(position=(2.8,2.8,0), symbols='Mn',name='Mn1')
+        a.append_atom(position=(2.8,2.8,2.8), symbols='Mn',name='Mn2')
+        a.append_atom(position=(2.8,0,0), symbols='Mn',name='Mn2')
+        a.append_atom(position=(0,2.8,0), symbols='Mn',name='Mn2')
+        a.append_atom(position=(0,0,2.8), symbols='Mn',name='Mn2')
+        
+        b = a.get_pymatgen(add_spin=True)
+        # check the spins
+        self.assertEquals([s.as_dict()['properties']['spin'] for s in b.species],
+                          [-1, -1, -1, -1, 1, 1, 1, 1])
+        # back to StructureData
+        c = StructureData(pymatgen=b)
+        self.assertEquals(c.get_site_kindnames(), ['Mn1','Mn1','Mn1','Mn1','Mn2','Mn2','Mn2','Mn2'])
+        self.assertEquals([k.symbol for k in c.kinds], ['Mn','Mn'])
+        self.assertEquals([s.position for s in c.sites],
+                          [(0.,0.,0.),(2.8,0,2.8),(0,2.8,2.8),(2.8,2.8,0),(2.8,2.8,2.8),(2.8,0,0),(0,2.8,0),(0,0,2.8)])
+
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_roundtrip_partial_occ(self):
+        """
+        Tests roundtrip StructureData -> pymatgen -> StructureData
+        (with partial occupancies).
+        """
+        from aiida.orm.data.structure import StructureData
+
+        a = StructureData(cell=[[4.0, 0.0, 0.0],
+                                [-2., 3.5, 0.0],
+                                [0.0, 0.0, 16.]])
+        a.append_atom(position=(0.0,0.0,13.5), symbols='Mn')
+        a.append_atom(position=(0.0,0.0,2.6), symbols='Mn')
+        a.append_atom(position=(0.0,0.0,5.5), symbols='Mn')
+        a.append_atom(position=(0.0,0.0,11.), symbols='Mn')
+        a.append_atom(position=(2.,1.,12.), symbols='Mn',weights=0.8)
+        a.append_atom(position=(0.0,2.2,4.), symbols='Mn',weights=0.8)
+        a.append_atom(position=(0.0,2.2,12.),symbols='Si')
+        a.append_atom(position=(2.,1.,4.),symbols='Si')
+        a.append_atom(position=(2.,1.,15.),symbols='N')
+        a.append_atom(position=(0.0,2.2,1.5),symbols='N')
+        a.append_atom(position=(0.0,2.2,7.),symbols='N')
+        a.append_atom(position=(2.,1.,9.5),symbols='N')
+        
+        # a few checks on the structure kinds and symbols
+        self.assertEquals(a.get_symbols_set(),set(['Mn', 'Si', 'N']))
+        self.assertEquals(a.get_site_kindnames(),
+                          ['Mn','Mn','Mn','Mn','MnX','MnX','Si','Si','N','N','N','N'])
+        self.assertEquals(a.get_formula(),'Mn4N4Si2{Mn0.80X0.20}2')
+        
+        b = a.get_pymatgen()
+        # check the partial occupancies
+        self.assertEquals([s.as_dict() for s in b.species_and_occu],
+                          [{'Mn':1.0},{'Mn':1.0},{'Mn':1.0},{'Mn':1.0},
+                           {'Mn':0.8},{'Mn':0.8},{'Si':1.0},{'Si':1.0},
+                           {'N':1.0},{'N':1.0},{'N':1.0},{'N':1.0}])
+                           
+        # back to StructureData
+        c = StructureData(pymatgen=b)
+        self.assertEquals(c.cell,[[4., 0.0, 0.0],
+                                  [-2., 3.5, 0.0],
+                                  [0.0, 0.0, 16.]])
+        self.assertEquals(c.get_symbols_set(),set(['Mn', 'Si', 'N']))
+        self.assertEquals(c.get_site_kindnames(),
+                          ['Mn','Mn','Mn','Mn','MnX','MnX','Si','Si','N','N','N','N'])
+        self.assertEquals(c.get_formula(),'Mn4N4Si2{Mn0.80X0.20}2')
+        self.assertEquals([s.position for s in c.sites],
+                          [(0.0, 0.0, 13.5),
+                           (0.0, 0.0, 2.6),
+                           (0.0, 0.0, 5.5),
+                           (0.0, 0.0, 11.),
+                           (2., 1., 12.),
+                           (0.0, 2.2, 4.),
+                           (0.0, 2.2, 12.),
+                           (2., 1., 4.),
+                           (2., 1., 15.),
+                           (0.0, 2.2, 1.5),
+                           (0.0, 2.2, 7.),
+                           (2., 1., 9.5)])
+
+    @unittest.skipIf(not has_pymatgen(), "Unable to import pymatgen")
+    def test_partial_occ_and_spin(self):
+        """
+        Tests StructureData -> pymatgen, with partial occupancies and spins.
+        This should raise a ValueError.
+        """
+        from aiida.orm.data.structure import StructureData
+        
+        a = StructureData(cell=[[4,0,0],[0,4,0],[0,0,4]])
+        a.append_atom(position=(0,0,0), symbols=('Fe','Al'),weights=(0.8,0.2),name='FeAl1')
+        a.append_atom(position=(2,2,2), symbols=('Fe','Al'),weights=(0.8,0.2),name='FeAl2')
+        
+        # a few checks on the structure kinds and symbols
+        self.assertEquals(a.get_symbols_set(),set(['Fe', 'Al']))
+        self.assertEquals(a.get_site_kindnames(),['FeAl1','FeAl2'])
+        self.assertEquals(a.get_formula(),'{Al0.20Fe0.80}2')
+        
+        with self.assertRaises(ValueError): 
+            a.get_pymatgen(add_spin=True)
+        
+        # same, with vacancies
+        a = StructureData(cell=[[4,0,0],[0,4,0],[0,0,4]])
+        a.append_atom(position=(0,0,0), symbols='Fe',weights=0.8,name='FeX1')
+        a.append_atom(position=(2,2,2), symbols='Fe',weights=0.8,name='FeX2')
+        
+        # a few checks on the structure kinds and symbols
+        self.assertEquals(a.get_symbols_set(),set(['Fe']))
+        self.assertEquals(a.get_site_kindnames(),['FeX1','FeX2'])
+        self.assertEquals(a.get_formula(),'{Fe0.80X0.20}2')
+        
+        with self.assertRaises(ValueError): 
+            a.get_pymatgen(add_spin=True)
+        
+        
 class TestArrayData(AiidaTestCase):
     """
     Tests the ArrayData objects.
@@ -2331,7 +3001,7 @@ class TestArrayData(AiidaTestCase):
         self.assertEquals(second.shape, n.get_shape('second'))
 
         # Same checks, after reloading
-        n2 = ArrayData(dbnode=n.dbnode)
+        n2 = load_node(uuid=n.uuid)
         self.assertEquals(set(['first', 'second']), set(n2.arraynames()))
         self.assertAlmostEquals(abs(first - n2.get_array('first')).max(), 0.)
         self.assertAlmostEquals(abs(second - n2.get_array('second')).max(), 0.)
@@ -2723,6 +3393,7 @@ class TestTrajectoryData(AiidaTestCase):
         import os
         import tempfile
         from aiida.orm.data.array.trajectory import TrajectoryData
+        from aiida.orm.data.cif import has_pycifrw
 
         n = TrajectoryData()
 
@@ -2775,7 +3446,11 @@ class TestTrajectoryData(AiidaTestCase):
         os.close(handle)
         os.remove(filename)
 
-        for format in ['cif', 'xsf']:
+        if has_pycifrw():
+            formats_to_test = ['cif', 'xsf']
+        else:
+            formats_to_test = ['xsf']
+        for format in formats_to_test:
             files_created = [] # In case there is an exception
             try:
                 files_created = n.export(filename, fileformat=format)

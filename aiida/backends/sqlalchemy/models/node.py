@@ -73,6 +73,7 @@ class DbNode(Base):
     id = Column(Integer, primary_key=True)
     uuid = Column(UUID(as_uuid=True), default=uuid_func)
     type = Column(String(255), index=True)
+    process_type = Column(String(255), index=True)
     label = Column(String(255), index=True, nullable=True,
                    default="")  # Does it make sense to be nullable and have a default?
     description = Column(Text(), nullable=True, default="")
@@ -114,7 +115,7 @@ class DbNode(Base):
     # User
     user = relationship(
         'DbUser',
-        backref=backref('dbnodes', passive_deletes='all', cascade='merge',)
+        backref=backref('dbnodes', passive_deletes='all', cascade='merge', )
     )
 
     # outputs via db_dblink table
@@ -127,14 +128,6 @@ class DbNode(Base):
         passive_deletes=True
     )
 
-    @property
-    def outputs(self):
-        return self.outputs_q.all()
-
-    @property
-    def inputs(self):
-        return self.inputs_q.all()
-
     def __init__(self, *args, **kwargs):
         super(DbNode, self).__init__(*args, **kwargs)
 
@@ -144,6 +137,13 @@ class DbNode(Base):
         if self.extras is None:
             self.extras = dict()
 
+    @property
+    def outputs(self):
+        return self.outputs_q.all()
+
+    @property
+    def inputs(self):
+        return self.inputs_q.all()
 
     # XXX repetition between django/sqlalchemy here.
     def get_aiida_class(self):
@@ -151,17 +151,16 @@ class DbNode(Base):
         Return the corresponding aiida instance of class aiida.orm.Node or a
         appropriate subclass.
         """
-        from aiida.common.old_pluginloader import from_type_to_pluginclassname
         from aiida.orm.node import Node
-        from aiida.common.pluginloader import load_plugin_safe
+        from aiida.plugins.loader import get_plugin_type_from_type_string, load_plugin
 
         try:
-            pluginclassname = from_type_to_pluginclassname(self.type)
+            plugin_type = get_plugin_type_from_type_string(self.type)
         except DbContentError:
             raise DbContentError("The type name of node with pk= {} is "
                                  "not valid: '{}'".format(self.pk, self.type))
 
-        PluginClass = load_plugin_safe(Node, 'aiida.orm', pluginclassname, self.type, self.pk)
+        PluginClass = load_plugin(plugin_type, safe=True)
 
         return PluginClass(dbnode=self)
 
@@ -215,8 +214,7 @@ class DbNode(Base):
     @staticmethod
     def _set_attr(d, key, value):
         if '.' in key:
-            raise ValueError(
-                "We don't know how to treat key with dot in it yet")
+            raise ValueError("We don't know how to treat key with dot in it yet")
 
         d[key] = value
 
@@ -273,9 +271,8 @@ class DbNode(Base):
         database)
         """
         return select([DbComputer.name]).where(DbComputer.id ==
-                                                 cls.dbcomputer_id).label(
+                                               cls.dbcomputer_id).label(
             'computer_name')
-
 
     @hybrid_property
     def state(self):
@@ -286,10 +283,10 @@ class DbNode(Base):
             return None
         all_states = DbCalcState.query.filter(DbCalcState.dbnode_id == self.id).all()
         if all_states:
-            #return max((st.time, st.state) for st in all_states)[1]
+            # return max((st.time, st.state) for st in all_states)[1]
             return sort_states(((dbcalcstate.state, dbcalcstate.state.value)
                                 for dbcalcstate in all_states),
-                                use_key=True)[0]
+                               use_key=True)[0]
         else:
             return None
 
@@ -306,7 +303,7 @@ class DbNode(Base):
             in enumerate(_sorted_datastates[::-1], start=1)}
         custom_sort_order = case(value=DbCalcState.state,
                                  whens=whens,
-                                 else_=100) # else: high value to put it at the bottom
+                                 else_=100)  # else: high value to put it at the bottom
 
         # Add numerical state to string, to allow to sort them
         states_with_num = select([
@@ -329,7 +326,7 @@ class DbNode(Base):
             DbCalcState.state.label('state_string'),
             calc_state_num.c.recent_state.label('recent_state'),
             custom_sort_order.label('num_state'),
-        ]).select_from(#DbCalcState).alias().join(
+        ]).select_from(  # DbCalcState).alias().join(
             join(DbCalcState, calc_state_num, DbCalcState.dbnode_id == calc_state_num.c.dbnode_id)).alias()
 
         # Get the association between each calc and only its corresponding most-recent-state row
@@ -339,10 +336,10 @@ class DbNode(Base):
         ]).select_from(all_states_q).where(all_states_q.c.num_state == all_states_q.c.recent_state).alias()
 
         # Final filtering for the actual query
-        return select([subq.c.state]).\
+        return select([subq.c.state]). \
             where(
-                    subq.c.dbnode_id == cls.id,
-                ).\
+            subq.c.dbnode_id == cls.id,
+        ). \
             label('laststate')
 
 
@@ -388,4 +385,3 @@ class DbLink(Base):
             self.output.get_simple_name(invalid_result="Unknown node"),
             self.output.pk
         )
-

@@ -17,9 +17,8 @@ from sqlalchemy.orm.session import make_transient
 from sqlalchemy.orm.attributes import flag_modified
 
 from aiida.backends.sqlalchemy.models.computer import DbComputer
-from aiida.backends.sqlalchemy.models.authinfo import DbAuthInfo
 from aiida.common.exceptions import (NotExistent, ConfigurationError,
-                                     InvalidOperation, DbContentError)
+                                     InvalidOperation)
 from aiida.orm.implementation.general.computer import AbstractComputer, Util as ComputerUtil
 from aiida.common.lang import override
 
@@ -83,15 +82,6 @@ class Computer(AbstractComputer):
 
         if is_modified:
             flag_modified(self._dbcomputer, "_metadata")
-
-
-    @staticmethod
-    def get_db_columns():
-        #I import get_db_columns here to avoid circular imports.
-        #In fact, aiida.orm.implementation.django.utils imports Computer
-        from aiida.orm.implementation.general.utils import get_db_columns
-        return get_db_columns(DbComputer)
-
 
     @classmethod
     def list_names(cls):
@@ -160,7 +150,7 @@ class Computer(AbstractComputer):
         make_transient(newdbcomputer)
         session.add(newdbcomputer)
 
-        newobject = self.__class__(newdbcomputer)
+        newobject = self.__class__(dbcomputer=newdbcomputer)
 
         return newobject
 
@@ -273,32 +263,6 @@ class Computer(AbstractComputer):
 
     def is_enabled(self):
         return self.dbcomputer.enabled
-
-    def get_dbauthinfo(self, user):
-        info = DbAuthInfo.query.filter_by(
-                dbcomputer=self.dbcomputer,
-                aiidauser=user).first()
-        if not info:
-            raise NotExistent("The user '{}' is not configured for "
-                              "computer '{}'".format(
-                                  user.email, self.name))
-        return info
-
-    def is_user_configured(self, user):
-        try:
-            self.get_dbauthinfo(user)
-            return True
-        except NotExistent:
-            return False
-
-    def is_user_enabled(self, user):
-        try:
-            dbauthinfo = self.get_dbauthinfo(user)
-            return dbauthinfo.enabled
-        except NotExistent:
-            # Return False if the user is not configured (in a sense,
-            # it is disabled for that user)
-            return False
 
     def set_enabled_state(self, enabled):
         self.dbcomputer.enabled = enabled
