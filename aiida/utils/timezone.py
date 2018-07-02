@@ -12,7 +12,7 @@ import pytz
 
 from datetime import datetime
 
-from aiida import settings
+from aiida.common import setup
 
 # All the timezone part here is taken from Django.
 # TODO SP: check license terms ?
@@ -27,7 +27,7 @@ def get_current_timezone():
 
 
 def now():
-    if getattr(settings, "USE_TZ", None):
+    if getattr(setup, 'USE_TZ', None):
         return datetime.utcnow().replace(tzinfo=utc)
     else:
         return datetime.now()
@@ -45,7 +45,7 @@ def make_aware(value, timezone=None, is_dst=None):
     """
 
     :param value: The datetime to make aware
-    :type value: :class:`datetime.datetime`
+    :type value: :class:`!datetime.datetime`
     :param timezone:
     :param is_dst:
     :return:

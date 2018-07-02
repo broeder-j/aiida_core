@@ -13,10 +13,8 @@ from abc import ABCMeta, abstractmethod
 class AbstractQueryManager(object):
     __metaclass__ = ABCMeta
 
-
-    def __init__(self,  *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         pass
-
 
     # This is an example of a query that could be overriden by a better implementation,
     # for performance reasons:
@@ -30,22 +28,25 @@ class AbstractQueryManager(object):
 
         Issue a warning if the state is not in the list of valid states.
 
-        :param string state: The state to be used to filter (should be a string among
+        :param state: The state to be used to filter (should be a string among
                 those defined in aiida.common.datastructures.calc_states)
+        :type state: str
         :param computer: a Django DbComputer entry, or a Computer object, of a
                 computer in the DbComputer table.
                 A string for the hostname is also valid.
         :param user: a Django entry (or its pk) of a user in the DbUser table;
                 if present, the results are restricted to calculations of that
                 specific user
-        :param bool only_computer_user_pairs: if False (default) return a queryset
+        :param only_computer_user_pairs: if False (default) return a queryset
                 where each element is a suitable instance of Node (it should
                 be an instance of Calculation, if everything goes right!)
                 If True, return only a list of tuples, where each tuple is
                 in the format
                 ('dbcomputer__id', 'user__id')
                 [where the IDs are the IDs of the respective tables]
-        :param int limit: Limit the number of rows returned
+        :type only_computer_user_pairs: bool
+        :param limit: Limit the number of rows returned
+        :type limit: int
 
         :return: a list of calculation objects matching the filters.
         """
@@ -53,14 +54,13 @@ class AbstractQueryManager(object):
         # update the filter below from dbattributes__tval to the correct field.
         from aiida.orm.computer import Computer
         from aiida.orm.calculation.job import JobCalculation
-        from aiida.orm.user import User
         from aiida.orm.querybuilder import QueryBuilder
         from aiida.common.exceptions import InputValidationError
         from aiida.common.datastructures import calc_states
 
         if state not in calc_states:
             raise InputValidationError("querying for calculation state='{}', but it "
-                                "is not a valid calculation state".format(state))
+                                       "is not a valid calculation state".format(state))
 
         calcfilter = {'state': {'==': state}}
         computerfilter = {"enabled": {'==': True}}
@@ -108,18 +108,17 @@ class AbstractQueryManager(object):
             returnresult = zip(*returnresult)[0]
         return returnresult
 
-
     def get_creation_statistics(
             self,
-            user_email=None
+            user_pk=None
     ):
         """
         Return a dictionary with the statistics of node creation, summarized by day.
 
         :note: Days when no nodes were created are not present in the returned `ctime_by_day` dictionary.
 
-        :param user_email: If None (default), return statistics for all users.
-            If an email is specified, return only the statistics for the given user.
+        :param user_pk: If None (default), return statistics for all users.
+            If user pk is specified, return only the statistics for the given user.
 
         :return: a dictionary as
             follows::
@@ -178,8 +177,9 @@ class AbstractQueryManager(object):
 
         q = QB()
         q.append(Node, project=['id', 'ctime', 'type'], tag='node')
-        if user_email is not None:
-            q.append(User, creator_of='node', project='email', filters={'email': user_email})
+
+        if user_pk is not None:
+            q.append(User, creator_of='node', project='email', filters={'pk': user_pk})
         qb_res = q.all()
 
         # total count
@@ -197,21 +197,22 @@ class AbstractQueryManager(object):
             A list of sublists, each latter containing (in order):
                 pk as string, formula as string, creation date, bandsdata-label
         """
-        
+
         import datetime
         from aiida.utils import timezone
         from aiida.orm.querybuilder import QueryBuilder
-        from aiida.backends.utils import get_automatic_user
-        from aiida.orm.implementation import User
         from aiida.orm.implementation import Group
         from aiida.orm.data.structure import (get_formula, get_symbols_string)
         from aiida.orm.data.array.bands import BandsData
         from aiida.orm.data.structure import StructureData
+        from aiida.orm.user import User
+        from aiida.orm.backend import construct_backend
+
+        backend = construct_backend()
 
         qb = QueryBuilder()
         if args.all_users is False:
-            au = get_automatic_user()
-            user = User(dbuser=au)
+            user = backend.users.get_automatic_user()
             qb.append(User, tag="creator", filters={"email": user.email})
         else:
             qb.append(User, tag="creator")
@@ -271,7 +272,7 @@ class AbstractQueryManager(object):
                 all_symbols = [_["symbols"][0] for _ in akinds]
                 if not all(
                         [s in all_symbols for s in args.element_only]
-                        ):
+                ):
                     continue
 
             # We want only the StructureData that have attributes

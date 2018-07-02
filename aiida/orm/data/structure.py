@@ -13,6 +13,7 @@ functions to operate on them.
 """
 
 from aiida.orm import Data
+from aiida.common.exceptions import UnsupportedSpeciesError
 from aiida.common.utils import classproperty, xyz_parser_iterator
 from aiida.orm.calculation.inline import optional_inline
 import itertools
@@ -223,10 +224,10 @@ def is_valid_symbol(symbol):
     Validates the chemical symbol name.
 
     :return: True if the symbol is a valid chemical symbol (with correct
-        capitalization), False otherwise.
+        capitalization), or the dummy X, False otherwise.
 
     Recognized symbols are for elements from hydrogen (Z=1) to lawrencium
-    (Z=103).
+    (Z=103). In addition, a dummy element unknown name (Z=0) is supported.
     """
     return symbol in _valid_symbols
 
@@ -236,8 +237,8 @@ def validate_symbols_tuple(symbols_tuple):
     Used to validate whether the chemical species are valid.
 
     :param symbols_tuple: a tuple (or list) with the chemical symbols name.
-    :raises: ValueError if any symbol in the tuple is not a valid chemical
-        symbols (with correct capitalization).
+    :raises: UnsupportedSpeciesError if any symbol in the tuple is not a valid chemical
+        symbol (with correct capitalization).
 
     Refer also to the documentation of :func:is_valid_symbol
     """
@@ -246,8 +247,8 @@ def validate_symbols_tuple(symbols_tuple):
     else:
         valid = all(is_valid_symbol(sym) for sym in symbols_tuple)
     if not valid:
-        raise ValueError("At least one element of the symbol list {} has "
-                         "not been recognized.".format(symbols_tuple))
+        raise UnsupportedSpeciesError("At least one element of the symbol list {} has "
+                                      "not been recognized.".format(symbols_tuple))
 
 
 def is_ase_atoms(ase_atoms):
@@ -683,7 +684,7 @@ def ase_refine_cell(aseatoms, **kwargs):
 
 
 @optional_inline
-def _get_cif_ase_inline(struct=None, parameters=None):
+def _get_cif_ase_inline(struct, parameters):
     """
     Creates :py:class:`aiida.orm.data.cif.CifData` using ASE.
 
@@ -843,24 +844,22 @@ class StructureData(Data):
             :param specie: a pymatgen specie
             :return: a string
             """
-            has_spin = any([specie.as_dict().get('properties',{}).get('spin',0)!=0
+            has_spin = any([specie.as_dict().get('properties', {}).get('spin', 0) != 0
                             for specie in species_and_occu.keys()])
-                            
-            if has_spin and (len(species_and_occu.items())>1
-                             or any([weight!=1.0 for weight in species_and_occu.values()])):
-                raise ValueError("Cannot set partial occupancies and spins "
-                                     "at the same time")
-            
+
+            if has_spin and (len(species_and_occu.items()) > 1
+                             or any([weight != 1.0 for weight in species_and_occu.values()])):
+                raise ValueError('Cannot set partial occupancies and spins at the same time')
+
             if not has_spin:
-                return Kind(symbols=[x[0].symbol for x in species_and_occu.items()],
-                            weights=[x[1] for x in species_and_occu.items()]).name
-            
+                return None
+
+            spin = species_and_occu.keys()[0].as_dict().get('properties', {}).get('spin', 0)
+
+            if spin < 0:
+                return specie.symbol + '1'
             else:
-                spin = species_and_occu.keys()[0].as_dict().get('properties',{}).get('spin',0)
-                if spin<0:
-                    return specie.symbol+'1'
-                else:
-                    return specie.symbol+'2'
+                return specie.symbol + '2'
         
         self.cell = struct.lattice.matrix.tolist()
         self.pbc = [True, True, True]
@@ -870,10 +869,17 @@ class StructureData(Data):
                 kind_name = site.properties['kind_name']
             else:
                 kind_name = build_kind_name(site.species_and_occu)
-            self.append_atom(symbols=[x[0].symbol for x in site.species_and_occu.items()],
-                         weights=[x[1] for x in site.species_and_occu.items()],
-                         position=site.coords.tolist(),
-                         name=kind_name)
+
+            inputs = {
+                'symbols': [x[0].symbol for x in site.species_and_occu.items()],
+                'weights': [x[1] for x in site.species_and_occu.items()],
+                'position': site.coords.tolist()
+            }
+
+            if kind_name is not None:
+                inputs['name'] = kind_name
+
+            self.append_atom(**inputs)
 
     def _validate(self):
         """
@@ -1316,7 +1322,7 @@ class StructureData(Data):
               until an unique name is found
 
         .. note :: checks of equality of species are done using
-          the :py:meth:`~Kind.compare_with` method.
+          the :py:meth:`~aiida.orm.data.structure.Kind.compare_with` method.
         """
         aseatom = kwargs.pop('ase', None)
         if aseatom is not None:
@@ -1923,11 +1929,11 @@ class Kind(object):
 
         :param symbols: a single string for the symbol of this site, or a list
                    of symbol strings
-        :param weights (optional): the weights for each atomic species of
+        :param weights: (optional) the weights for each atomic species of
                    this site.
                    If only a single symbol is provided, then this value is
                    optional and the weight is set to 1.
-        :param mass (optional): the mass for this site in atomic mass units.
+        :param mass: (optional) the mass for this site in atomic mass units.
                    If not provided, the mass is set by the
                    self.reset_mass() function.
         :param name: a string that uniquely identifies the kind, and that

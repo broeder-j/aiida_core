@@ -19,7 +19,6 @@ from aiida.utils import timezone
 from aiida.common.log import get_dblogger_extra
 
 
-
 def get_group_list(user, type_string, n_days_ago=None,
                    name_filters={}):
     from aiida.orm.implementation.django.group import Group
@@ -34,16 +33,17 @@ def get_group_list(user, type_string, n_days_ago=None,
                          **name_filters)
 
     return tuple([
-                     (str(g.pk), g.name, len(g.nodes), g.user.email.strip(),
-                      g.description)
-                     for g in groups
-                     ])
+        (str(g.pk), g.name, len(g.nodes), g.user.email.strip(),
+         g.description)
+        for g in groups
+    ])
 
 
 def get_workflow_list(pk_list=tuple(), user=None, all_states=False,
                       n_days_ago=None):
     """
     Get a list of workflow.
+
     :param user: A ORM User class if you want to filter by user
     :param pk_list: Limit the results to this list of PKs
     :param all_states: if False, limit results to "active" (e.g., running) wfs
@@ -55,7 +55,7 @@ def get_workflow_list(pk_list=tuple(), user=None, all_states=False,
     if pk_list:
         filters = Q(pk__in=pk_list)
     else:
-        filters = Q(user=user._dbuser)
+        filters = Q(user__id=user.id)
 
         if not all_states:
             filters &= ~Q(state=wf_states.FINISHED) & ~Q(state=wf_states.ERROR)
@@ -85,24 +85,3 @@ def get_log_messages(obj):
     return log_messages
 
 
-def get_computers_work_dir(calculations, user):
-    """
-    Get a list of computers and their remotes working directory.
-
-   `calculations` should be a list of JobCalculation object.
-    """
-
-    from aiida.orm.computer import Computer
-    from aiida.backends.utils import get_authinfo
-
-    computers = [Computer.get(c.dbcomputer) for c in calculations]
-
-    remotes = {}
-    for computer in computers:
-        remotes[computer.name] = {
-            'transport': get_authinfo(computer=computer,
-                                      aiidauser=user).get_transport(),
-            'computer': computer,
-        }
-
-    return remotes

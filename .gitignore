@@ -1,5 +1,6 @@
 *.pyc
 *~
+*.swp
 *.project
 *.pydevproject
 .settings
@@ -17,3 +18,9 @@
 # files created by coverage
 *\,cover
 coverage/
+.cache
+.pytest_cache
+.coverage
+
+# Files created by RPN tests
+.ci/polish/polish_workchains/polish*

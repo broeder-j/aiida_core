@@ -48,12 +48,12 @@ class AbstractGroup(object):
         or pass the parameters for the Group creation.
 
         :param dbgroup: the dbgroup object, if you want to reload the group
-          from the DB rather than creating a new one.
+            from the DB rather than creating a new one.
         :param name: The group name, required on creation
         :param description: The group description (by default, an empty string)
         :param user: The owner of the group (by default, the automatic user)
         :param type_string: a string identifying the type of group (by default,
-           an empty string, indicating an user-defined group.
+            an empty string, indicating an user-defined group.
         """
         pass
 
@@ -61,6 +61,19 @@ class AbstractGroup(object):
     def name(self):
         """
         :return: the name of the group as a string
+        """
+        pass
+
+    @abstractproperty
+    @name.setter
+    def name(self, name):
+        """
+        Attempt to change the name of the group instance. If the group is already stored
+        and the another group of the same type already exists with the desired name, a
+        UniquenessError will be raised
+
+        :param name: the new group name
+        :raises UniquenessError: if another group of same type and name already exists
         """
         pass
 
@@ -124,14 +137,57 @@ class AbstractGroup(object):
         """
         pass
 
-    @abstractstaticmethod
-    def get_db_columns():
+    @staticmethod
+    def get_schema():
         """
-        This method returns a list with the column names and types of the table
-        corresponding to this class.
-        :return: a list with the names of the columns
+        Every node property contains:
+            - display_name: display name of the property
+            - help text: short help text of the property
+            - is_foreign_key: is the property foreign key to other type of the node
+            - type: type of the property. e.g. str, dict, int
+
+        :return: get schema of the group
         """
-        pass
+        return {
+            "description": {
+                "display_name": "Description",
+                "help_text": "short description of the Computer",
+                "is_foreign_key": False,
+                "type": "str"
+            },
+            "id": {
+                "display_name": "Id",
+                "help_text": "Id of the object",
+                "is_foreign_key": False,
+                "type": "int"
+            },
+            "name": {
+                "display_name": "Name",
+                "help_text": "Name of the object",
+                "is_foreign_key": False,
+                "type": "str"
+            },
+            "type": {
+                "display_name": "Type",
+                "help_text": "Code type",
+                "is_foreign_key": False,
+                "type": "str"
+            },
+            "user_id": {
+                "display_name": "Id of creator",
+                "help_text": "Id of the user that created the node",
+                "is_foreign_key": True,
+                "related_column": "id",
+                "related_resource": "_dbusers",
+                "type": "int"
+            },
+            "uuid": {
+                "display_name": "Unique ID",
+                "help_text": "Universally Unique Identifier",
+                "is_foreign_key": False,
+                "type": "unicode"
+            }
+        }
 
     @classmethod
     def create(cls, *args, **kwargs):
@@ -231,37 +287,37 @@ class AbstractGroup(object):
         """
         Query for groups.
 
-        :note: By default, query for user-defined groups only (type_string=="") 
-          If you want to query for all type of groups, pass type_string=None.
-          If you want to query for a specific type of groups, pass a specific
-          string as the type_string argument.
+        :note: By default, query for user-defined groups only (type_string=="").
+            If you want to query for all type of groups, pass type_string=None.
+            If you want to query for a specific type of groups, pass a specific
+            string as the type_string argument.
 
         :param name: the name of the group
-        :param nodes: a node or list of nodes that belongs to the group 
-          (alternatively, you can also pass a DbNode or list of DbNodes)
+        :param nodes: a node or list of nodes that belongs to the group (alternatively,
+            you can also pass a DbNode or list of DbNodes)
         :param pk: the pk of the group
         :param uuid: the uuid of the group
         :param type_string: the string for the type of node; by default, look
-          only for user-defined groups (see note above).
+            only for user-defined groups (see note above).
         :param user: by default, query for groups of all users; if specified,
-          must be a DbUser object, or a string for the user email.
+            must be a DbUser object, or a string for the user email.
         :param past_days: by default, query for all groups; if specified, query
-          the groups created in the last past_days. Must be a datetime object.
+            the groups created in the last past_days. Must be a datetime object.
         :param node_attributes: if not None, must be a dictionary with
-          format {k: v}. It will filter and return only groups where there
-          is at least a node with an attribute with key=k and value=v.
-          Different keys of the dictionary are joined with AND (that is, the
-          group should satisfy all requirements.
-          v can be a base data type (str, bool, int, float, ...)
-          If it is a list or iterable, that the condition is checked so that
-          there should be at least a node in the group with key=k and
-          value=each of the values of the iterable.
+            format {k: v}. It will filter and return only groups where there
+            is at least a node with an attribute with key=k and value=v.
+            Different keys of the dictionary are joined with AND (that is, the
+            group should satisfy all requirements.
+            v can be a base data type (str, bool, int, float, ...)
+            If it is a list or iterable, that the condition is checked so that
+            there should be at least a node in the group with key=k and
+            value=each of the values of the iterable.
         :param kwargs: any other filter to be passed to DbGroup.objects.filter
 
-        Example: ``node_attributes = {'elements': ['Ba', 'Ti'], 'md5sum': 'xxx'}``
-          will find groups that contain the node with md5sum = 'xxx', and
-          moreover contain at least one node for element 'Ba' and one node 
-          for element 'Ti'.
+            Example: if ``node_attributes = {'elements': ['Ba', 'Ti'], 'md5sum': 'xxx'}``,
+                it will find groups that contain the node with md5sum = 'xxx', and moreover
+                contain at least one node for element 'Ba' and one node for element 'Ti'.
+
         """
         pass
 

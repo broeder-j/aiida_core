@@ -12,8 +12,8 @@ Generic tests that need the use of the DB
 """
 
 from aiida.backends.testbase import AiidaTestCase
+from aiida.common import exceptions
 from aiida.orm.node import Node
-
 
 
 class TestComputer(AiidaTestCase):
@@ -42,8 +42,6 @@ class TestComputer(AiidaTestCase):
 
         _ = JobCalculation(**calc_params).store()
 
-        #print "Node stored with pk:",  _.dbnode.pk
-
         # This should fail, because there is at least a calculation
         # using this computer (the one created just above)
         with self.assertRaises(InvalidOperation):
@@ -62,11 +60,11 @@ class TestGroupsDjango(AiidaTestCase):
         """
         from aiida.orm.group import Group
         from aiida.common.exceptions import NotExistent, MultipleObjectsError
-        from aiida.backends.djsite.db.models import DbUser
-        from aiida.backends.djsite.utils import get_automatic_user
 
         g1 = Group(name='testquery1').store()
+        self.addCleanup(g1.delete)
         g2 = Group(name='testquery2').store()
+        self.addCleanup(g2.delete)
 
         n1 = Node().store()
         n2 = Node().store()
@@ -76,7 +74,7 @@ class TestGroupsDjango(AiidaTestCase):
         g1.add_nodes([n1, n2])
         g2.add_nodes([n1, n3])
 
-        newuser = DbUser.objects.create_user(email='test@email.xx', password='')
+        newuser = self.backend.users.create(email='test@email.xx')
         g3 = Group(name='testquery3', user=newuser).store()
 
         # I should find it
@@ -110,44 +108,72 @@ class TestGroupsDjango(AiidaTestCase):
         res = Group.query(user=newuser.email)
         self.assertEquals(set(_.pk for _ in res), set(_.pk for _ in [g3]))
 
-        res = Group.query(user=get_automatic_user())
+        res = Group.query(user=self.backend.users.get_automatic_user())
         self.assertEquals(set(_.pk for _ in res), set(_.pk for _ in [g1, g2]))
 
-        # Final cleanup
-        g1.delete()
-        g2.delete()
-        newuser.delete()
+    def test_rename_existing(self):
+        """
+        Test that renaming to an already existing name is not permitted
+        """
+        from aiida.orm.group import Group
+
+        name_group_a = 'group_a'
+        name_group_b = 'group_b'
+        name_group_c = 'group_c'
+
+        group_a = Group(name=name_group_a, description='I am the Original G')
+        group_a.store()
+
+        # Before storing everything should be fine
+        group_b = Group(name=name_group_a, description='They will try to rename me')
+        group_c = Group(name=name_group_c, description='They will try to rename me')
+
+        # Storing for duplicate group name should trigger UniquenessError
+        with self.assertRaises(exceptions.IntegrityError):
+            group_b.store()
+
+        # Before storing everything should be fine
+        group_c.name = name_group_a
+
+        # Reverting to unique name before storing
+        group_c.name = name_group_c
+        group_c.store()
+
+        # After storing name change to existing should raise
+        with self.assertRaises(exceptions.IntegrityError):
+            group_c.name = name_group_a
 
 
 class TestDbExtrasDjango(AiidaTestCase):
     """
     Test DbAttributes.
     """
+
     def test_replacement_1(self):
         from aiida.backends.djsite.db.models import DbExtra
 
         n1 = Node().store()
         n2 = Node().store()
 
-        DbExtra.set_value_for_node(n1.dbnode, "pippo", [1, 2, 'a'])
-        DbExtra.set_value_for_node(n1.dbnode, "pippobis", [5, 6, 'c'])
-        DbExtra.set_value_for_node(n2.dbnode, "pippo2", [3, 4, 'b'])
+        DbExtra.set_value_for_node(n1._dbnode, "pippo", [1, 2, 'a'])
+        DbExtra.set_value_for_node(n1._dbnode, "pippobis", [5, 6, 'c'])
+        DbExtra.set_value_for_node(n2._dbnode, "pippo2", [3, 4, 'b'])
 
         self.assertEquals(n1.get_extras(), {'pippo': [1, 2, 'a'],
-                                             'pippobis': [5, 6, 'c'],
-                                             '_aiida_hash': n1.get_hash()
-                                             })
+                                            'pippobis': [5, 6, 'c'],
+                                            '_aiida_hash': n1.get_hash()
+                                            })
         self.assertEquals(n2.get_extras(), {'pippo2': [3, 4, 'b'],
                                             '_aiida_hash': n2.get_hash()
                                             })
 
         new_attrs = {"newval1": "v", "newval2": [1, {"c": "d", "e": 2}]}
 
-        DbExtra.reset_values_for_node(n1.dbnode, attributes=new_attrs)
+        DbExtra.reset_values_for_node(n1._dbnode, attributes=new_attrs)
         self.assertEquals(n1.get_extras(), new_attrs)
         self.assertEquals(n2.get_extras(), {'pippo2': [3, 4, 'b'], '_aiida_hash': n2.get_hash()})
 
-        DbExtra.del_value_for_node(n1.dbnode, key='newval2')
+        DbExtra.del_value_for_node(n1._dbnode, key='newval2')
         del new_attrs['newval2']
         self.assertEquals(n1.get_extras(), new_attrs)
         # Also check that other nodes were not damaged

@@ -239,7 +239,7 @@ class RESTApiTestCase(AiidaTestCase):
         :param result_name: result name in response e.g. inputs, outputs
         """
 
-        if result_node_type == None and result_name == None:
+        if result_node_type is None and result_name is None:
             result_node_type = node_type
             result_name = node_type
 
@@ -266,15 +266,13 @@ class RESTApiTestCase(AiidaTestCase):
                     raise InputValidationError(
                         "Pass the expected range of the dummydata")
 
-                self.assertTrue(
-                    len(response["data"][result_name]) == len(expected_data))
+                self.assertEqual(
+                    len(response["data"][result_name]), len(expected_data))
 
                 for expected_node, response_node in zip(expected_data,
                                                         response["data"][
                                                             result_name]):
-
-                    self.assertTrue(all(item in response_node.items()
-                                        for item in expected_node.items()))
+                    self.assertEqual(response_node['uuid'], expected_node['uuid'])
 
                 self.compare_extra_response_data(node_type, url, response, uuid)
 
@@ -380,7 +378,7 @@ class RESTApiTestSuite(RESTApiTestCase):
         it returns the no. of rows defined as default perpage option
         from database.
 
-        **** no.of pages = total no. of computers in database / perpage
+        no.of pages = total no. of computers in database / perpage
         "/page" acts as "/page/1?perpage=default_value"
 
         """
@@ -390,7 +388,7 @@ class RESTApiTestSuite(RESTApiTestCase):
 
     def test_computers_list_page_perpage(self):
         """
-        **** no.of pages = total no. of computers in database / perpage
+        no.of pages = total no. of computers in database / perpage
         Using this formula it returns the no. of rows for requested page
         """
         RESTApiTestCase.process_test(self, "computers",
@@ -399,7 +397,7 @@ class RESTApiTestSuite(RESTApiTestCase):
 
     def test_computers_list_page_perpage_exceed(self):
         """
-        **** no.of pages = total no. of computers in database / perpage
+        no.of pages = total no. of computers in database / perpage
 
         If we request the page which exceeds the total no. of pages then
         it would return the error message.
@@ -662,8 +660,7 @@ class RESTApiTestSuite(RESTApiTestCase):
         url parameters: id, limit and offset
 
         from aiida.common.exceptions import InputValidationError
-        RESTApiTestCase.node_exception(self, "/computers?aa=bb&id=2",
-                                       InputValidationError)
+        RESTApiTestCase.node_exception(self, "/computers?aa=bb&id=2", InputValidationError)
         """
         pass
 
@@ -805,4 +802,25 @@ class RESTApiTestSuite(RESTApiTestCase):
         cif = load_node(node_uuid)._prepare_cif()[0]
         self.assertEquals(rv.data, cif )
 
+    ############### schema #############
+    def test_schema(self):
+        """
+        test schema
+        """
+        for nodetype in ["nodes", "calculations", "data", "codes", "computers", "users", "groups"]:
+            url = self.get_url_prefix() + '/' + nodetype + '/schema'
+            with self.app.test_client() as client:
+                rv = client.get(url)
+                response = json.loads(rv.data)
+                expected_keys = ["display_name", "help_text", "is_display", "is_foreign_key", "type"]
 
+                # check fields
+                for pkey, pinfo in response["data"]["fields"].items():
+                    available_keys = pinfo.keys()
+                    for prop in expected_keys:
+                        self.assertIn(prop, available_keys)
+
+                # check order
+                available_properties = response["data"]["fields"].keys()
+                for prop in response["data"]["ordering"]:
+                    self.assertIn(prop, available_properties)

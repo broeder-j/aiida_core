@@ -12,7 +12,6 @@ Testing Session possible problems.
 """
 
 import os
-
 from sqlalchemy.orm import sessionmaker
 
 import aiida.backends
@@ -57,16 +56,15 @@ class TestSessionSqla(AiidaTestCase):
         expire_on_commit=True & adding manually and committing
         computer and code objects.
         """
-        from aiida.orm.computer import Computer
-        from aiida.orm.code import Code
-        from aiida.orm.user import User
+        from aiida.orm.implementation.sqlalchemy.computer import Computer
+        from aiida.orm.implementation.sqlalchemy.code import Code
 
         self.set_connection(expire_on_commit=True)
 
         session = aiida.backends.sqlalchemy.get_scoped_session()
 
-        user = User(email=get_configured_user_email())
-        session.add(user._dbuser)
+        user = self.backend.users.create(email=get_configured_user_email())
+        session.add(user.dbuser)
         session.commit()
 
         defaults = dict(name='localhost',
@@ -80,7 +78,7 @@ class TestSessionSqla(AiidaTestCase):
 
         code = Code()
         code.set_remote_computer_exec((computer, '/x.x'))
-        session.add(code.dbnode)
+        session.add(code._dbnode)
         session.commit()
 
         self.drop_connection()
@@ -91,16 +89,15 @@ class TestSessionSqla(AiidaTestCase):
         their built-in store function.
         """
         from aiida.backends.sqlalchemy.models.user import DbUser
-        from aiida.orm.computer import Computer
-        from aiida.orm.code import Code
-        from aiida.orm.user import User
+        from aiida.orm.implementation.sqlalchemy.computer import Computer
+        from aiida.orm.implementation.sqlalchemy.code import Code
 
         session = aiida.backends.sqlalchemy.get_scoped_session()
 
         self.set_connection(expire_on_commit=True)
 
-        user = User(email=get_configured_user_email())
-        session.add(user._dbuser)
+        user = self.backend.users.create(email=get_configured_user_email())
+        session.add(user.dbuser)
         session.commit()
 
         defaults = dict(name='localhost',
@@ -122,16 +119,15 @@ class TestSessionSqla(AiidaTestCase):
         expire_on_commit=False & adding manually and committing
         computer and code objects.
         """
-        from aiida.orm.computer import Computer
-        from aiida.orm.code import Code
-        from aiida.orm.user import User
+        from aiida.orm.implementation.sqlalchemy.computer import Computer
+        from aiida.orm.implementation.sqlalchemy.code import Code
 
         self.set_connection(expire_on_commit=False)
 
         session = aiida.backends.sqlalchemy.get_scoped_session()
 
-        user = User(email=get_configured_user_email())
-        session.add(user._dbuser)
+        user = self.backend.users.create(email=get_configured_user_email())
+        session.add(user.dbuser)
         session.commit()
 
         defaults = dict(name='localhost',
@@ -145,7 +141,7 @@ class TestSessionSqla(AiidaTestCase):
 
         code = Code()
         code.set_remote_computer_exec((computer, '/x.x'))
-        session.add(code.dbnode)
+        session.add(code._dbnode)
         session.commit()
 
         self.drop_connection()
@@ -157,14 +153,13 @@ class TestSessionSqla(AiidaTestCase):
         """
         self.set_connection(expire_on_commit=False)
 
-        from aiida.orm.computer import Computer
-        from aiida.orm.code import Code
-        from aiida.orm.user import User
+        from aiida.orm.implementation.sqlalchemy.computer import Computer
+        from aiida.orm.implementation.sqlalchemy.code import Code
 
         session = aiida.backends.sqlalchemy.get_scoped_session()
 
-        user = User(email=get_configured_user_email())
-        session.add(user._dbuser)
+        user = self.backend.users.create(email=get_configured_user_email())
+        session.add(user.dbuser)
         session.commit()
 
         defaults = dict(name='localhost',
@@ -201,8 +196,8 @@ class TestSessionSqla(AiidaTestCase):
         n.store()
 
         # Keep some useful information
-        n_id = n.dbnode.id
-        old_dbnode = n.dbnode
+        n_id = n.id
+        old_dbnode = n._dbnode
 
         # Get the session
         sess = get_scoped_session()
@@ -219,10 +214,83 @@ class TestSessionSqla(AiidaTestCase):
         # Remove everything from the session
         sess.expunge_all()
 
-        # Add the dbnode that was firstly added to the session
+        # Add the dbnode that was originally added to the session
         sess.add(old_dbnode)
 
         # Add as attribute the node that was added after the first cleanup
         # of the session
         # At this point the following command should not fail
         wf.add_attribute('a', n_reloaded)
+
+    def test_node_access_with_sessions(self):
+        """
+        This checks that changes to a node from a different session (e.g. different interpreter,
+        or the daemon) are immediately reflected on the AiiDA node when read directly e.g. a change
+        to node.description will immediately be seen.
+
+        Tests for bug #1372
+        """
+        from aiida.utils import timezone
+        from aiida.orm.implementation.sqlalchemy.node import Node
+        from aiida.orm.implementation.sqlalchemy.node import DbNode
+        import aiida.backends.sqlalchemy as sa
+        from sqlalchemy.orm import sessionmaker
+
+        Session = sessionmaker(bind=sa.engine)
+        custom_session = Session()
+
+        node = Node().store()
+        master_session = node._dbnode.session
+        self.assertIsNot(master_session, custom_session)
+
+        # Manually load the DbNode in a different session
+        dbnode_reloaded = custom_session.query(DbNode).get(node.id)
+
+        # Now, go through one by one changing the possible attributes (of the model)
+        # and check that they're updated when the user reads them from the aiida node
+
+        def check_attrs_match(name):
+            node_attr = getattr(node, name)
+            dbnode_attr = getattr(dbnode_reloaded, name)
+            self.assertEqual(
+                node_attr, dbnode_attr,
+                "Values of '{}' don't match ({} != {})".format(name, node_attr, dbnode_attr))
+
+        def do_value_checks(attr_name, original, changed):
+            try:
+                setattr(node, attr_name, original)
+            except AttributeError:
+                # This may mean that it is immutable, but we should still be able to
+                # change it below directly through the dbnode
+                pass
+            # Refresh the custom session and make sure they match
+            custom_session.refresh(dbnode_reloaded, attribute_names=[str_attr])
+            check_attrs_match(attr_name)
+
+            # Change the value in the custom session via the DbNode
+            setattr(dbnode_reloaded, attr_name, changed)
+            custom_session.commit()
+
+            # Check that the Node 'sees' the change
+            check_attrs_match(str_attr)
+
+        for str_attr in ['label', 'description']:
+            do_value_checks(str_attr, 'original', 'changed')
+
+        do_value_checks('nodeversion', 1, 2)
+        do_value_checks('public', True, False)
+
+        for str_attr in ['ctime', 'mtime']:
+            do_value_checks(str_attr, timezone.now(), timezone.now())
+
+        # Attributes
+        self.assertDictEqual(node._attributes(), dbnode_reloaded.attributes)
+        dbnode_reloaded.attributes['test_attrs'] = 'Boo!'
+        custom_session.commit()
+        self.assertDictEqual(node._attributes(), dbnode_reloaded.attributes)
+
+        # Extras
+        self.assertDictEqual(node.get_extras(), dbnode_reloaded.extras)
+        dbnode_reloaded.extras['test_extras'] = 'Boo!'
+        custom_session.commit()
+        self.assertDictEqual(node._attributes(), dbnode_reloaded.attributes)

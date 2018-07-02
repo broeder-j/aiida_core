@@ -22,11 +22,15 @@ from aiida.orm.code import Code
 from aiida.orm.data import Data
 from aiida.orm.node import Node
 from aiida.orm.utils import load_node
+from aiida.utils.capturing import Capturing
+from aiida.utils.delete_nodes import delete_nodes
+
 
 class TestNodeHashing(AiidaTestCase):
     """
     Tests the functionality of hashing a node
     """
+
     @staticmethod
     def create_simple_node(a, b=0, c=0):
         n = Node()
@@ -67,8 +71,8 @@ class TestNodeHashing(AiidaTestCase):
         f2 = self.create_folderdata_with_empty_folder()
 
         assert (
-            f1.folder.get_subfolder('path').get_content_list() ==
-            f2.folder.get_subfolder('path').get_content_list()
+                f1.folder.get_subfolder('path').get_content_list() ==
+                f2.folder.get_subfolder('path').get_content_list()
         )
         assert f1.get_hash() != f2.get_hash()
 
@@ -106,6 +110,7 @@ class TestNodeHashing(AiidaTestCase):
             (np.zeros(1001), np.zeros(1005)),
             (np.array([1, 2, 3]), np.array([2, 3, 4]))
         ]
+
         def create_arraydata(arr):
             a = ArrayData()
             a.set_array('a', arr)
@@ -123,61 +128,13 @@ class TestNodeHashing(AiidaTestCase):
         """
         Tests that updatable attributes are ignored.
         """
+        from aiida.orm.calculation import Calculation
         c = Calculation()
         hash1 = c.get_hash()
-        c._set_attr('_sealed', True)
+        c._set_process_state('finished')
         hash2 = c.get_hash()
         self.assertNotEquals(hash1, None)
         self.assertEquals(hash1, hash2)
-
-class TestDataNode(AiidaTestCase):
-    """
-    These tests check the features of Data nodes that differ from the base Node
-    """
-    boolval = True
-    intval = 123
-    floatval = 4.56
-    stringval = "aaaa"
-    # A recursive dictionary
-    dictval = {
-        'num': 3,
-        'something': 'else',
-        'emptydict': {},
-        'recursive': {
-            'a': 1,
-            'b': True,
-            'c': 1.2,
-            'd': [1, 2, None],
-            'e': {
-                'z': 'z',
-                'x': None,
-                'xx': {},
-                'yy': []
-            }
-        }
-    }
-    listval = [1, "s", True, None]
-    emptydict = {}
-    emptylist = []
-
-    def test_attr_after_storing(self):
-        a = Data()
-        a._set_attr('bool', self.boolval)
-        a._set_attr('integer', self.intval)
-        a.store()
-
-        # And now I try to edit/delete the keys; I should not be able to do it
-        # after saving. I try only for a couple of attributes
-        with self.assertRaises(ModificationNotAllowed):
-            a._del_attr('bool')
-        with self.assertRaises(ModificationNotAllowed):
-            a._set_attr('integer', 13)
-
-    def test_modify_attr_after_store(self):
-        a = Data()
-        a.store()
-        with self.assertRaises(ModificationNotAllowed):
-            a._set_attr('i', 12)
 
 
 class TestTransitiveNoLoops(AiidaTestCase):
@@ -487,7 +444,6 @@ class TestNodeBasic(AiidaTestCase):
         # Now I check if I can retrieve them, before the storage
         self.assertEquals(a.get_attrs(), target_attrs)
 
-
     def test_store_object(self):
         """Trying to store objects should fail"""
         a = Node()
@@ -523,7 +479,7 @@ class TestNodeBasic(AiidaTestCase):
         self.assertEquals(a.get_attr('list'), [1, 2, 3, 4])
         self.assertEquals(mylist, [1, 2, 3])
 
-    #pylint: disable=no-self-use,unused-argument,unused-variable,no-member
+    # pylint: disable=no-self-use,unused-argument,unused-variable,no-member
     def DISABLED(self):
         """
         This test routine is disabled for the time being; I will re-enable
@@ -559,7 +515,7 @@ class TestNodeBasic(AiidaTestCase):
 
             all_keys = models.DbAttribute.objects.filter(
                 dbnode=n.dbnode).values_list(
-                    'key', flat=True)
+                'key', flat=True)
 
             print max(len(i) for i in all_keys)
 
@@ -1185,16 +1141,17 @@ class TestNodeBasic(AiidaTestCase):
         """
         Test that setting a basetype as an attribute works transparently
         """
+        from aiida.orm.data.list import List
         from aiida.orm.data.parameter import ParameterData
-        from aiida.orm.data.base import Str, List
+        from aiida.orm.data.str import Str
 
         # This one is unstored
         l1 = List()
-        l1._set_list(['b', [1, 2]])
+        l1.set_list(['b', [1, 2]])
 
         # This one is stored
         l2 = List()
-        l2._set_list(['f', True, {'gg': None}])
+        l2.set_list(['f', True, {'gg': None}])
         l2.store()
 
         # Manages to store, and value is converted to its base type
@@ -1227,15 +1184,16 @@ class TestNodeBasic(AiidaTestCase):
         """
         Test that setting a basetype as an attribute works transparently
         """
-        from aiida.orm.data.base import Str, List
+        from aiida.orm.data.list import List
+        from aiida.orm.data.str import Str
 
         # This one is unstored
         l1 = List()
-        l1._set_list(['b', [1, 2]])
+        l1.set_list(['b', [1, 2]])
 
         # This one is stored
         l2 = List()
-        l2._set_list(['f', True, {'gg': None}])
+        l2.set_list(['f', True, {'gg': None}])
         l2.store()
 
         # Check also before storing
@@ -1266,40 +1224,42 @@ class TestNodeBasic(AiidaTestCase):
         a.store()
 
         # Even if I stored many attributes, this should stay at 1
-        self.assertEquals(a._dbnode.nodeversion, 1)
-        self.assertEquals(a.dbnode.nodeversion, 1)
-        self.assertEquals(a._dbnode.nodeversion, 1)
+        self.assertEquals(a.nodeversion, 1)
+        self.assertEquals(a.nodeversion, 1)
+        self.assertEquals(a.nodeversion, 1)
 
         a.label = "label1"
         a.label = "label2"
-        self.assertEquals(a._dbnode.nodeversion, 3)
-        self.assertEquals(a.dbnode.nodeversion, 3)
-        self.assertEquals(a._dbnode.nodeversion, 3)
+        self.assertEquals(a.nodeversion, 3)
+        self.assertEquals(a.nodeversion, 3)
+        self.assertEquals(a.nodeversion, 3)
 
         a.description = "desc1"
         a.description = "desc2"
         a.description = "desc3"
-        self.assertEquals(a._dbnode.nodeversion, 6)
-        self.assertEquals(a.dbnode.nodeversion, 6)
-        self.assertEquals(a._dbnode.nodeversion, 6)
+        self.assertEquals(a.nodeversion, 6)
+        self.assertEquals(a.nodeversion, 6)
+        self.assertEquals(a.nodeversion, 6)
 
     def test_comments(self):
         # This is the best way to compare dates with the stored ones, instead
         # of directly loading datetime.datetime.now(), or you can get a
         # "can't compare offset-naive and offset-aware datetimes" error
         from aiida.utils import timezone
-        from aiida.backends.utils import get_automatic_user
+        from aiida.orm.backend import construct_backend
         import time
+
+        backend = construct_backend()
 
         a = Node()
         with self.assertRaises(ModificationNotAllowed):
-            a.add_comment('text', user=get_automatic_user())
+            a.add_comment('text', user=backend.users.get_automatic_user())
         a.store()
         self.assertEquals(a.get_comments(), [])
         before = timezone.now()
         time.sleep(1)  # I wait 1 second because MySql time precision is 1 sec
-        a.add_comment('text', user=get_automatic_user())
-        a.add_comment('text2', user=get_automatic_user())
+        a.add_comment('text', user=backend.users.get_automatic_user())
+        a.add_comment('text2', user=backend.users.get_automatic_user())
         time.sleep(1)
         after = timezone.now()
 
@@ -1312,9 +1272,9 @@ class TestNodeBasic(AiidaTestCase):
 
         self.assertEquals([(i['user__email'], i['content'])
                            for i in comments], [
-                               (self.user_email, 'text'),
-                               (self.user_email, 'text2'),
-                           ])
+                              (self.user_email, 'text'),
+                              (self.user_email, 'text2'),
+                          ])
 
     def test_code_loading_from_string(self):
         """
@@ -1378,22 +1338,22 @@ class TestNodeBasic(AiidaTestCase):
         # Check that you can load it with a simple integer id.
         a2 = Node.get_subclass_from_pk(a1.id)
         self.assertEquals(a1.id, a2.id, "The ids of the stored and loaded node"
-                          "should be equal (since it should be "
-                          "the same node")
+                                        "should be equal (since it should be "
+                                        "the same node")
 
         # Check that you can load it with an id of type long.
         # a3 = Node.get_subclass_from_pk(long(a1.id))
         a3 = Node.get_subclass_from_pk(long(a1.id))
         self.assertEquals(a1.id, a3.id, "The ids of the stored and loaded node"
-                          "should be equal (since it should be "
-                          "the same node")
+                                        "should be equal (since it should be "
+                                        "the same node")
 
         # Check that it manages to load the node even if the id is
         # passed as a string.
         a4 = Node.get_subclass_from_pk(str(a1.id))
         self.assertEquals(a1.id, a4.id, "The ids of the stored and loaded node"
-                          "should be equal (since it should be "
-                          "the same node")
+                                        "should be equal (since it should be "
+                                        "the same node")
 
         # Check that a ValueError exception is raised when a string that can
         # not be casted to integer is passed.
@@ -1575,8 +1535,12 @@ class TestNodeBasic(AiidaTestCase):
             with self.assertRaises(NotExistent):
                 load_node(spec, parent_class=ArrayData)
 
-    def test_load_plugin_safe(self):
-        from aiida.orm import (JobCalculation, CalculationFactory, DataFactory)
+    def test_load_unknown_calculation_type(self):
+        """
+        Test that the loader will choose a common calculation ancestor for an unknown data type.
+        For the case where, e.g., the user doesn't have the necessary plugin.
+        """
+        from aiida.orm import (JobCalculation, CalculationFactory)
 
         ###### for calculation
         calc_params = {
@@ -1586,43 +1550,54 @@ class TestNodeBasic(AiidaTestCase):
 
         TemplateReplacerCalc = CalculationFactory('simpleplugins.templatereplacer')
         testcalc = TemplateReplacerCalc(**calc_params).store()
-        jobcalc = JobCalculation(**calc_params).store()
 
         # compare if plugin exist
-        obj = testcalc.dbnode.get_aiida_class()
+        obj = load_node(uuid=testcalc.uuid)
         self.assertEqual(type(testcalc), type(obj))
 
-        # change node type and save in database again
-        testcalc.dbnode.type = "calculation.job.simpleplugins_tmp.templatereplacer.TemplatereplacerCalculation."
-        testcalc.dbnode.save()
+        # Create a custom calculation type that inherits from JobCalculation but change the plugin type string
+        class TestCalculation(JobCalculation):
+            pass
+
+        TestCalculation._plugin_type_string = 'calculation.job.simpleplugins_tmp.templatereplacer.TemplatereplacerCalculation.'
+
+        jobcalc = JobCalculation(**calc_params).store()
+        testcalc = TestCalculation(**calc_params).store()
 
         # changed node should return job calc as its plugin is not exist
-        obj = testcalc.dbnode.get_aiida_class()
+        obj = load_node(uuid=testcalc.uuid)
         self.assertEqual(type(jobcalc), type(obj))
 
-        ####### for data
+    def test_load_unknown_data_type(self):
+        """
+        Test that the loader will choose a common data ancestor for an unknown data type.
+        For the case where, e.g., the user doesn't have the necessary plugin.
+        """
+        from aiida.orm import DataFactory
+        from aiida.orm.data import Data
+
         KpointsData = DataFactory('array.kpoints')
         kpoint = KpointsData().store()
-        Data = DataFactory("Data")
         data = Data().store()
 
         # compare if plugin exist
-        obj = kpoint.dbnode.get_aiida_class()
+        obj = load_node(uuid=kpoint.uuid)
         self.assertEqual(type(kpoint), type(obj))
 
+        class TestKpointsData(KpointsData):
+            pass
+
         # change node type and save in database again
-        kpoint.dbnode.type = "data.array.kpoints_tmp.KpointsData."
-        kpoint.dbnode.save()
+        test_kpoint = TestKpointsData().store()
 
         # changed node should return data node as its plugin is not exist
-        obj = kpoint.dbnode.get_aiida_class()
-        self.assertEqual(type(data), type(obj))
+        obj = load_node(uuid=kpoint.uuid)
+        self.assertEqual(type(kpoint), type(obj))
 
         ###### for node
         n1 = Node().store()
         obj = n1.dbnode.get_aiida_class()
         self.assertEqual(type(n1), type(obj))
-
 
 
 class TestSubNodesAndLinks(AiidaTestCase):
@@ -1668,7 +1643,7 @@ class TestSubNodesAndLinks(AiidaTestCase):
         self.assertEqual(
             set([(i[0], i[1].uuid)
                  for i in endnode.get_inputs(only_in_db=True, also_labels=True)
-                ]), set())
+                 ]), set())
         self.assertEqual(
             set([(i[0], i[1].uuid)
                  for i in endnode.get_inputs(also_labels=True)]),
@@ -1681,7 +1656,7 @@ class TestSubNodesAndLinks(AiidaTestCase):
         self.assertEqual(
             set([(i[0], i[1].uuid)
                  for i in endnode.get_inputs(only_in_db=True, also_labels=True)
-                ]),
+                 ]),
             set([("N1", n1.uuid), ("N2", n2.uuid), ("N3", n3.uuid), ("N4",
                                                                      n4.uuid)]))
         self.assertEqual(
@@ -1716,7 +1691,7 @@ class TestSubNodesAndLinks(AiidaTestCase):
         self.assertEqual(
             set([(i[0], i[1].uuid)
                  for i in endnode.get_inputs(only_in_db=True, also_labels=True)
-                ]), set([("N1", n1.uuid), ("N2", n2.uuid)]))
+                 ]), set([("N1", n1.uuid), ("N2", n2.uuid)]))
         self.assertEqual(
             set([(i[0], i[1].uuid)
                  for i in endnode.get_inputs(also_labels=True)]),
@@ -1765,13 +1740,13 @@ class TestSubNodesAndLinks(AiidaTestCase):
         n2.add_link_from(n1, "N1", link_type=LinkType.CREATE)
 
         self.assertTrue(n1.has_children, "It should be true since n2 is the "
-                        "child of n1.")
+                                         "child of n1.")
         self.assertFalse(n1.has_parents, "It should be false since n1 doesn't "
-                         "have any parents.")
+                                         "have any parents.")
         self.assertFalse(n2.has_children, "It should be false since n2 "
-                         "doesn't have any children.")
+                                          "doesn't have any children.")
         self.assertTrue(n2.has_parents, "It should be true since n1 is the "
-                        "parent of n2.")
+                                        "parent of n2.")
 
     def test_use_code(self):
         from aiida.orm import JobCalculation
@@ -1814,7 +1789,7 @@ class TestSubNodesAndLinks(AiidaTestCase):
         self.assertEqual(calc.get_code().uuid, code.uuid)
         self.assertEqual(unstoredcalc.get_code().uuid, code.uuid)
 
-    #pylint: disable=unused-variable,no-member,no-self-use
+    # pylint: disable=unused-variable,no-member,no-self-use
     def test_calculation_load(self):
         from aiida.orm import JobCalculation
 
@@ -1979,6 +1954,20 @@ class TestSubNodesAndLinks(AiidaTestCase):
             ]))
         n2_out_links = [(l, n.pk) for l, n in n2.get_outputs(also_labels=True)]
         self.assertEquals(sorted(n2_out_links), sorted([('l2', n3.pk)]))
+
+    @unittest.skip("This test should be enabled when link type constraints are properly implemented")
+    def test_multiple_create_links(self):
+        """
+        Cannot have two CREATE links for the same node.
+        """
+        n1 = Node()
+        n2 = Node()
+        n3 = Node()
+
+        # Caching the links
+        n3.add_link_from(n1, label='CREATE', link_type=LinkType.CREATE)
+        with self.assertRaises(UniquenessError):
+            n3.add_link_from(n2, label='CREATE', link_type=LinkType.CREATE)
 
     def test_valid_links(self):
         import tempfile
@@ -2190,20 +2179,24 @@ class TestSubNodesAndLinks(AiidaTestCase):
         self.assertEquals(len(node_origin.get_inputs(link_type=LinkType.CALL)), 1)
         self.assertEquals(len(node_origin.get_inputs(link_type=LinkType.INPUT)), 1)
 
+
 class AnyValue(object):
     """
     Helper class that compares equal to everything.
     """
+
     def __eq__(self, other):
         return True
 
+
 class TestNodeDeletion(AiidaTestCase):
+
     def _check_existence(self, uuids_check_existence, uuids_check_deleted):
         """
         I get 2 lists of uuids
-        :param list uuids_check_existence: The list of uuids that have to exist
-        :param list uuids_check_deleted:
-            The list of uuids that should not exist,
+
+        :param uuids_check_existence: The list of uuids that have to exist
+        :param uuids_check_deleted: The list of uuids that should not exist,
             I check that NotExistent is raised.
         """
         from aiida.common.exceptions import NotExistent
@@ -2214,6 +2207,7 @@ class TestNodeDeletion(AiidaTestCase):
             # I check that it raises
             with self.assertRaises(NotExistent):
                 load_node(uuid)
+
     def _create_calls_n_returns_graph(self):
         """
         Creates a complicated graph with a master with 1 inputs,
@@ -2222,9 +2216,6 @@ class TestNodeDeletion(AiidaTestCase):
         Master also creates one nodes. This allows to check whether the delete_nodes
         command works as anticipated.
         """
-        from aiida.common.links import LinkType
-
-
         in1, in2, wf, slave1, outp1, outp2, slave2, outp3, outp4 = [Node().store() for i in range(9)]
         wf.add_link_from(in1, link_type=LinkType.INPUT)
         slave1.add_link_from(in1, link_type=LinkType.INPUT)
@@ -2244,16 +2235,13 @@ class TestNodeDeletion(AiidaTestCase):
         I'm setting up a sequence of nodes connected by data provenance links.
         Testing whether I will delete the right ones.
         """
-        from aiida.common.links import LinkType
-        from aiida.utils.delete_nodes import delete_nodes
-
         nodes = [Node().store() for i in range(15)]
         uuids_check_existence = [n.uuid for n in nodes[:3]]
         uuids_check_deleted = [n.uuid for n in nodes[3:]]
 
         # Now I am linking the nodes in a branched network
         # Connecting nodes 1,2,3 to 0
-        for i in range(1,4):
+        for i in range(1, 4):
             nodes[i].add_link_from(nodes[0], link_type=LinkType.INPUT)
         # Connecting nodes 4,5,6 to 3
         for i in range(4, 7):
@@ -2265,51 +2253,56 @@ class TestNodeDeletion(AiidaTestCase):
         for i in range(9, 10):
             nodes[i].add_link_from(nodes[5], link_type=LinkType.INPUT)
         for i in range(10, 14):
-            nodes[i+1].add_link_from(nodes[i], link_type=LinkType.INPUT)
-        delete_nodes((nodes[3].pk, nodes[10].pk), force=True, verbosity=0)
-        self._check_existence(uuids_check_existence, uuids_check_deleted)
+            nodes[i + 1].add_link_from(nodes[i], link_type=LinkType.INPUT)
 
+        with Capturing():
+            delete_nodes((nodes[3].pk, nodes[10].pk), force=True, verbosity=2)
+
+        self._check_existence(uuids_check_existence, uuids_check_deleted)
 
     def test_deletion_with_calls_with_returns(self):
         """
         Checking the case where I follow calls and return links for deletion
         """
-        from aiida.utils.delete_nodes import delete_nodes
         in1, in2, wf, slave1, outp1, outp2, slave2, outp3, outp4 = self._create_calls_n_returns_graph()
         # The inputs are not harmed.
         uuids_check_existence = (in1.uuid, in2.uuid)
         # the slaves and their outputs have to disappear since calls are followed!
         uuids_check_deleted = [n.uuid for n in (wf, slave1, outp1, outp2, outp3, slave2, outp4)]
-        delete_nodes([wf.pk], verbosity=0, force=True, follow_calls=True, follow_returns=True)
+
+        with Capturing():
+            delete_nodes([wf.pk], verbosity=2, force=True, follow_calls=True, follow_returns=True)
+
         self._check_existence(uuids_check_existence, uuids_check_deleted)
 
     def test_deletion_with_calls_no_returns(self):
         """
         Checking the case where I follow calls and not return links for deletion
         """
-
-        from aiida.utils.delete_nodes import delete_nodes
         in1, in2, wf, slave1, outp1, outp2, slave2, outp3, outp4 = self._create_calls_n_returns_graph()
         # The inputs are not harmed.
         uuids_check_existence = (in1.uuid, in2.uuid, outp4.uuid)
         # the slaves and their outputs have to disappear since calls are followed!
         uuids_check_deleted = [n.uuid for n in (wf, slave1, outp1, outp2, outp3, slave2)]
-        delete_nodes([wf.pk], verbosity=0, force=True, follow_calls=True, follow_returns=False)
+
+        with Capturing():
+            delete_nodes([wf.pk], verbosity=2, force=True, follow_calls=True, follow_returns=False)
+
         self._check_existence(uuids_check_existence, uuids_check_deleted)
 
     def test_deletion_no_calls_no_returns(self):
         """
         Checking the case where I don't follow calls and also not return links for deletion
         """
-
-        from aiida.utils.delete_nodes import delete_nodes
-
         in1, in2, wf, slave1, outp1, outp2, slave2, outp3, outp4 = self._create_calls_n_returns_graph()
         # I don't follow calls, so the slaves and their output are unharmed, as well as input
         uuids_check_existence = [n.uuid for n in (in1, in2, slave1, outp1, outp2, slave2, outp4)]
         # the wf and it's direct output
         uuids_check_deleted = [n.uuid for n in (wf, outp3)]
-        delete_nodes([wf.pk], verbosity=0, force=True, follow_calls=False, follow_returns=False)
+
+        with Capturing():
+            delete_nodes([wf.pk], verbosity=2, force=True, follow_calls=False, follow_returns=False)
+
         self._check_existence(uuids_check_existence, uuids_check_deleted)
         self._check_existence(uuids_check_existence, uuids_check_deleted)
 
@@ -2317,15 +2310,15 @@ class TestNodeDeletion(AiidaTestCase):
         """
         Checking the case where I follow returns and not calls for deletion
         """
-
-        from aiida.utils.delete_nodes import delete_nodes
-
         in1, in2, wf, slave1, outp1, outp2, slave2, outp3, outp4 = self._create_calls_n_returns_graph()
         # I don't follow calls, so the slaves and their output are unharmed, as well as input
         uuids_check_existence = [n.uuid for n in (in1, in2, slave1, outp1, slave2)]
         # the wf and it's direct output and what it returned
         uuids_check_deleted = [n.uuid for n in (wf, outp3, outp2, outp4)]
-        delete_nodes([wf.pk], verbosity=0, force=True, follow_calls=False, follow_returns=True)
+
+        with Capturing():
+            delete_nodes([wf.pk], verbosity=2, force=True, follow_calls=False, follow_returns=True)
+
         self._check_existence(uuids_check_existence, uuids_check_deleted)
         self._check_existence(uuids_check_existence, uuids_check_deleted)
 
@@ -2333,16 +2326,31 @@ class TestNodeDeletion(AiidaTestCase):
         """
         Setting up a simple loop, to check that the following doesn't go bananas.
         """
-        from aiida.common.links import LinkType
-        from aiida.utils.delete_nodes import delete_nodes
-
         in1, in2, wf = [Node().store() for i in range(3)]
         wf.add_link_from(in1, link_type=LinkType.INPUT)
         wf.add_link_from(in2, link_type=LinkType.INPUT)
         in2.add_link_from(wf, link_type=LinkType.RETURN)
 
-        uuids_check_existence = (in1.uuid, )
+        uuids_check_existence = (in1.uuid,)
         uuids_check_deleted = [n.uuid for n in (wf, in2)]
 
-        delete_nodes([wf.pk], verbosity=0, force=True, follow_returns=True)
+        with Capturing():
+            delete_nodes([wf.pk], verbosity=2, force=True, follow_returns=True)
+
+        self._check_existence(uuids_check_existence, uuids_check_deleted)
+
+    def test_delete_called_but_not_caller(self):
+        """
+        Check that deleting a Calculation that was called by another Calculation which won't be
+        deleted works, even though it will raise a warning
+        """
+        caller, called = [Calculation().store() for i in range(2)]
+        called.add_link_from(caller, link_type=LinkType.CALL)
+
+        uuids_check_existence = (caller.uuid, )
+        uuids_check_deleted = [n.uuid for n in (called, )]
+
+        with Capturing():
+            delete_nodes([called.pk], verbosity=2, force=True, follow_returns=True)
+
         self._check_existence(uuids_check_existence, uuids_check_deleted)

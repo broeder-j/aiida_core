@@ -7,13 +7,18 @@
 # For further information on the license, see the LICENSE.txt file        #
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
-
 from aiida.common.links import LinkType
 from ete3 import Tree
 
+__all__ = ['draw_children', 'draw_parents', 'format_call_graph']
 
-def draw_parents(node, node_label=None, show_pk=True, dist=2,
-                  follow_links_of_type=None):
+
+TREE_LAST_ENTRY = u'\u2514\u2500\u2500 '
+TREE_MIDDLE_ENTRY = u'\u251C\u2500\u2500 '
+TREE_FIRST_ENTRY = TREE_MIDDLE_ENTRY
+
+
+def draw_parents(node, node_label=None, show_pk=True, dist=2, follow_links_of_type=None):
     """
     Print an ASCII tree of the parents of the given node.
 
@@ -29,12 +34,10 @@ def draw_parents(node, node_label=None, show_pk=True, dist=2,
         if None then it will follow CREATE and INPUT links
     :type follow_links_of_type: str
     """
-    print(get_ascii_tree(node, node_label, show_pk, dist,
-                         follow_links_of_type, False))
+    return get_ascii_tree(node, node_label, show_pk, dist, follow_links_of_type, False)
 
 
-def draw_children(node, node_label=None, show_pk=True, dist=2,
-                  follow_links_of_type=None):
+def draw_children(node, node_label=None, show_pk=True, dist=2, follow_links_of_type=None):
     """
     Print an ASCII tree of the parents of the given node.
 
@@ -50,12 +53,10 @@ def draw_children(node, node_label=None, show_pk=True, dist=2,
         if None then it will follow CREATE and INPUT links
     :type follow_links_of_type: str
     """
-    print(get_ascii_tree(node, node_label, show_pk, dist,
-                         follow_links_of_type, True))
+    return get_ascii_tree(node, node_label, show_pk, dist, follow_links_of_type, True)
 
 
-def get_ascii_tree(node, node_label=None, show_pk=True, max_depth=1,
-                   follow_links_of_type=None, descend=True):
+def get_ascii_tree(node, node_label=None, show_pk=True, max_depth=1, follow_links_of_type=None, descend=True):
     """
     Get a string representing an ASCII tree for the given node.
 
@@ -72,14 +73,13 @@ def get_ascii_tree(node, node_label=None, show_pk=True, max_depth=1,
         :class:`aiida.common.links.LinkType`
     :param descend: if True will follow outputs, if False inputs
     :type descend: bool
-    :return: The string giving an ASCII representation of the tree from the
-        node
+    :return: The string giving an ASCII representation of the tree from the node
     :rtype: str
     """
     tree_string = build_tree(
-       node, node_label, show_pk, max_depth, follow_links_of_type, descend
+        node, node_label, show_pk, max_depth, follow_links_of_type, descend
     )
-    t = Tree("({});".format(tree_string), format=1)
+    t = Tree('({});'.format(tree_string), format=1)
     return t.get_ascii(show_internal=True)
 
 
@@ -106,11 +106,11 @@ def build_tree(node, node_label=None, show_pk=True, max_depth=1,
             )
 
         if relatives:
-            out_values.append("({})".format(", ".join(relatives)))
+            out_values.append('({})'.format(', '.join(relatives)))
 
     out_values.append(_generate_node_label(node, node_label, show_pk))
 
-    return "".join(out_values)
+    return ''.join(out_values)
 
 
 def _generate_node_label(node, node_attr, show_pk):
@@ -126,16 +126,12 @@ def _generate_node_label(node, node_attr, show_pk):
     :return: The generated label
     :rtype: str
     """
-
     label = None
     if node_attr is None:
-        attrs = node.get_attrs()
-        # Try a list of default ones
-        for l in ['value', 'function_name', '_process_label']:
-            try:
-                label = str(attrs[l])
-            except KeyError:
-                pass
+        try:
+            label = node.process_label
+        except AttributeError:
+            label = None
     else:
         try:
             label = str(getattr(node, node_attr))
@@ -150,10 +146,100 @@ def _generate_node_label(node, node_attr, show_pk):
         label = node.__class__.__name__
 
     if show_pk:
-        label += " [{}]".format(node.pk)
+        label += ' [{}]'.format(node.pk)
 
     return label
 
 
 def _ctime(node):
     return node.ctime
+
+
+def calc_info(calc_node):
+    from aiida.orm.calculation.function import FunctionCalculation
+    from aiida.orm.calculation.inline import InlineCalculation
+    from aiida.orm.calculation.job import JobCalculation
+    from aiida.orm.calculation.work import WorkCalculation
+    from aiida.work.processes import ProcessState
+
+    if isinstance(calc_node, WorkCalculation):
+        plabel = calc_node.process_label
+        pstate = calc_node.process_state
+        winfo = calc_node.stepper_state_info
+
+        if winfo is None:
+            s = u'{} <pk={}> [{}]'.format(plabel, calc_node.pk, pstate)
+        else:
+            s = u'{} <pk={}> [{}] [{}]'.format(plabel, calc_node.pk, pstate, winfo)
+
+    elif isinstance(calc_node, JobCalculation):
+        clabel = type(calc_node).__name__
+        cstate = str(calc_node.get_state())
+        s = u'{} <pk={}> [{}]'.format(clabel, calc_node.pk, cstate)
+    elif isinstance(calc_node, (FunctionCalculation, InlineCalculation)):
+        plabel = calc_node.process_label
+        pstate = calc_node.process_state
+        s = u'{} <pk={}> [{}]'.format(plabel, calc_node.pk, pstate)
+    else:
+        raise TypeError('Unknown type: {}'.format(type(calc_node)))
+
+    return s
+
+
+def format_call_graph(calc_node, info_fn=calc_info):
+    """
+    Print a tree like the POSIX tree command for the calculation call graph
+
+    :param calc_node: The calculation node
+    :param info_fn: An optional function that takes the node and returns a string
+        of information to be displayed for each node.
+    """
+    call_tree = build_call_graph(calc_node, info_fn=info_fn)
+    return format_tree_descending(call_tree)
+
+
+def build_call_graph(calc_node, info_fn=calc_info):
+    info_string = info_fn(calc_node)
+    called = calc_node.called
+    called.sort(key=lambda x: x.ctime)
+    if called:
+        return info_string, [build_call_graph(child, info_fn) for child in called]
+    else:
+        return info_string
+
+
+def format_tree_descending(tree, prefix=u"", pos=-1):
+    text = []
+
+    if isinstance(tree, tuple):
+        info = tree[0]
+    else:
+        info = tree
+
+    if pos == -1:
+        pre = u''
+    elif pos == 0:
+        pre = u'{}{}'.format(prefix, TREE_FIRST_ENTRY)
+    elif pos == 1:
+        pre = u'{}{}'.format(prefix, TREE_MIDDLE_ENTRY)
+    else:
+        pre = u'{}{}'.format(prefix, TREE_LAST_ENTRY)
+    text.append(u'{}{}'.format(pre, info))
+
+    if isinstance(tree, tuple):
+        key, value = tree
+        num_entries = len(value)
+        if pos == -1 or pos == 2:
+            new_prefix = u'{}    '.format(prefix)
+        else:
+            new_prefix = u'{}\u2502   '.format(prefix)
+        for i, entry in enumerate(value):
+            if i == num_entries - 1:
+                pos = 2
+            elif i == 0:
+                pos = 0
+            else:
+                pos = 1
+            text.append(format_tree_descending(entry, new_prefix, pos))
+
+    return u'\n'.join(text)

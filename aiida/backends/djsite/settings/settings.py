@@ -72,7 +72,7 @@ except NameError:
 # Note: this variable might disappear in the future
 REPOSITORY_PROTOCOL, REPOSITORY_PATH = parse_repository_uri(REPOSITORY_URI)
 
-if settings.IN_DOC_MODE:
+if settings.IN_RT_DOC_MODE:
     pass
 elif REPOSITORY_PROTOCOL == 'file':
     if not os.path.isdir(REPOSITORY_PATH):
@@ -98,8 +98,7 @@ SECRET_KEY = get_secret_key()
 
 # Usual Django settings starts here.............
 
-# Keep it to False! Otherwise every query is stored
-# in memory and looks like a memory leak with celery
+# Keep it to False! Otherwise every query is stored in memory
 DEBUG = False
 TEMPLATE_DEBUG = DEBUG
 

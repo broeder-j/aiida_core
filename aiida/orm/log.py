@@ -18,6 +18,11 @@ OrderSpecifier = namedtuple("OrderSpecifier", ['field', 'direction'])
 
 
 class Log(object):
+    """
+    This class represents the collection of logs and can be used to create
+    and retrieve logs.
+    """
+
     __metaclass__ = ABCMeta
 
     @abstractmethod
@@ -27,7 +32,7 @@ class Log(object):
         Create a log entry.
 
         :param time: The time of creation for the entry
-        :type time: :class:`datetime.datetime`
+        :type time: :class:`!datetime.datetime`
         :param loggername: The name of the logger that generated the entry
         :type loggername: basestring
         :param levelname: The log level
@@ -117,7 +122,7 @@ class LogEntry(object):
         Get the time corresponding to the entry
 
         :return: The entry timestamp
-        :rtype: :class:`datetime.datetime`
+        :rtype: :class:`!datetime.datetime`
         """
         pass
 
@@ -177,7 +182,7 @@ class LogEntry(object):
         Get the metadata corresponding to the entry
 
         :return: The entry metadata
-        :rtype: json
+        :rtype: :class:`!json.json`
         """
         pass
 

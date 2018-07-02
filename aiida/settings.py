@@ -10,12 +10,9 @@
 import os
 from aiida.backends import settings
 from aiida.common.exceptions import ConfigurationError, MissingConfigurationError
-from aiida.common.setup import (get_config, get_secret_key, get_property,
-                                get_profile_config, get_default_profile,
-                                parse_repository_uri)
+from aiida.common.setup import get_config, get_profile_config, parse_repository_uri
 
 
-USE_TZ = True
 TESTING_MODE = False
 
 try:
@@ -40,7 +37,7 @@ DBPORT = profile_conf.get('AIIDADB_PORT', '')
 REPOSITORY_URI = profile_conf.get('AIIDADB_REPOSITORY_URI', '')
 
 
-## Checks on the REPOSITORY_* variables
+# Checks on the REPOSITORY_* variables
 try:
     REPOSITORY_URI
 except NameError:
@@ -51,7 +48,7 @@ except NameError:
 # Note: this variable might disappear in the future
 REPOSITORY_PROTOCOL, REPOSITORY_PATH = parse_repository_uri(REPOSITORY_URI)
 
-if settings.IN_DOC_MODE:
+if settings.IN_RT_DOC_MODE:
     pass
 elif REPOSITORY_PROTOCOL == 'file':
     if not os.path.isdir(REPOSITORY_PATH):

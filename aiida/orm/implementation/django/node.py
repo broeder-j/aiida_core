@@ -15,16 +15,16 @@ from django.db import IntegrityError, transaction
 from django.db.models import F
 
 from aiida.backends.djsite.db.models import DbLink
-from aiida.backends.djsite.utils import get_automatic_user
 from aiida.common.exceptions import (InternalError, ModificationNotAllowed,
                                      NotExistent, UniquenessError)
 from aiida.common.folders import RepositoryFolder
 from aiida.common.links import LinkType
-from aiida.common.utils import get_new_uuid
+from aiida.common.utils import get_new_uuid, type_check
 from aiida.orm.implementation.general.node import AbstractNode, _NO_DEFAULT, _HASH_EXTRA_KEY
+from aiida.orm.implementation.django.computer import Computer
 from aiida.orm.mixins import Sealable
-# from aiida.orm.implementation.django.utils import get_db_columns
-from aiida.orm.implementation.general.utils import get_db_columns
+
+from . import user as users
 
 
 class Node(AbstractNode):
@@ -40,12 +40,6 @@ class Node(AbstractNode):
                 uuid, cls.__name__))
         return node
 
-    @staticmethod
-    def get_db_columns():
-        # from aiida.backends.djsite.db.models import DbNode
-        from aiida.backends.djsite.querybuilder_django.dummy_model import DbNode
-        return get_db_columns(DbNode)
-
     @classmethod
     def get_subclass_from_pk(cls, pk):
         from aiida.backends.djsite.db.models import DbNode
@@ -58,8 +52,32 @@ class Node(AbstractNode):
                 pk, cls.__name__))
         return node
 
+    @classmethod
+    def query(cls, *args, **kwargs):
+        from aiida.backends.djsite.db.models import DbNode
+        if cls._plugin_type_string:
+            if not cls._plugin_type_string.endswith('.'):
+                raise InternalError("The plugin type string does not "
+                                    "finish with a dot??")
+
+            # If it is 'calculation.Calculation.', we want to filter
+            # for things that start with 'calculation.' and so on
+            plug_type = cls._plugin_type_string
+
+            # Remove the implementation.django or sqla part.
+            if plug_type.startswith('implementation.'):
+                plug_type = '.'.join(plug_type.split('.')[2:])
+            pre, sep, _ = plug_type[:-1].rpartition('.')
+            superclass_string = "".join([pre, sep])
+            return DbNode.aiidaobjects.filter(
+                *args, type__startswith=superclass_string, **kwargs)
+        else:
+            # Base Node class, with empty string
+            return DbNode.aiidaobjects.filter(*args, **kwargs)
+
     def __init__(self, **kwargs):
         from aiida.backends.djsite.db.models import DbNode
+
         super(Node, self).__init__()
 
         self._temp_folder = None
@@ -87,7 +105,7 @@ class Node(AbstractNode):
 
             # If this is changed, fix also the importer
             self._repo_folder = RepositoryFolder(section=self._section_name,
-                                                 uuid=self._dbnode.uuid)
+                                                 uuid=self.uuid)
 
         # NO VALIDATION ON __init__ BY DEFAULT, IT IS TOO SLOW SINCE IT OFTEN
         # REQUIRES MULTIPLE DB HITS
@@ -102,8 +120,8 @@ class Node(AbstractNode):
         #                    uuid, self.__class__.__name__, e.message))
         else:
             # TODO: allow to get the user from the parameters
-            user = get_automatic_user()
-            self._dbnode = DbNode(user=user,
+            user = self._backend.users.get_automatic_user()
+            self._dbnode = DbNode(user=user.dbuser,
                                   uuid=get_new_uuid(),
                                   type=self._plugin_type_string)
 
@@ -145,16 +163,38 @@ class Node(AbstractNode):
             # Base Node class, with empty string
             return DbNode.aiidaobjects.filter(*args, **kwargs)
 
+    @property
+    def type(self):
+        return self._dbnode.type
+
+    @property
+    def nodeversion(self):
+        return self._dbnode.nodeversion
+
+    @property
+    def ctime(self):
+        return self._dbnode.ctime
+
+    @property
+    def mtime(self):
+        return self._dbnode.mtime
+
+    def _get_db_label_field(self):
+        return self._dbnode.label
+
     def _update_db_label_field(self, field_value):
-        self.dbnode.label = field_value
-        if not self._to_be_stored:
+        self._dbnode.label = field_value
+        if self.is_stored:
             with transaction.atomic():
                 self._dbnode.save()
                 self._increment_version_number_db()
 
+    def _get_db_description_field(self):
+        return self._dbnode.description
+
     def _update_db_description_field(self, field_value):
-        self.dbnode.description = field_value
-        if not self._to_be_stored:
+        self._dbnode.description = field_value
+        if self.is_stored:
             with transaction.atomic():
                 self._dbnode.save()
                 self._increment_version_number_db()
@@ -169,7 +209,7 @@ class Node(AbstractNode):
                 self._add_dblink_from(src, label, link_type)
 
     def _remove_dblink_from(self, label):
-        DbLink.objects.filter(output=self.dbnode, label=label).delete()
+        DbLink.objects.filter(output=self._dbnode, label=label).delete()
 
     def _add_dblink_from(self, src, label=None, link_type=LinkType.UNSPECIFIED):
         from aiida.orm.querybuilder import QueryBuilder
@@ -178,7 +218,7 @@ class Node(AbstractNode):
         if self.uuid == src.uuid:
             raise ValueError("Cannot link to itself")
 
-        if self._to_be_stored:
+        if not self.is_stored:
             raise ModificationNotAllowed(
                 "Cannot call the internal _add_dblink_from if the "
                 "destination node is not stored")
@@ -195,8 +235,8 @@ class Node(AbstractNode):
             # I am linking src->self; a loop would be created if a DbPath exists already
             # in the TC table from self to src
             if QueryBuilder().append(
-                    Node, filters={'id':self.pk}, tag='parent').append(
-                    Node, filters={'id':src.pk}, tag='child', descendant_of='parent').count() > 0:
+                    Node, filters={'id': self.pk}, tag='parent').append(
+                Node, filters={'id': src.pk}, tag='child', descendant_of='parent').count() > 0:
                 raise ValueError(
                     "The link you are attempting to create would generate a loop")
 
@@ -204,7 +244,7 @@ class Node(AbstractNode):
             autolabel_idx = 1
 
             existing_from_autolabels = list(DbLink.objects.filter(
-                output=self.dbnode,
+                output=self._dbnode,
                 label__startswith="link_").values_list('label', flat=True))
             while "link_{}".format(autolabel_idx) in existing_from_autolabels:
                 autolabel_idx += 1
@@ -233,7 +273,7 @@ class Node(AbstractNode):
             # transactions are needed here for Postgresql:
             # https://docs.djangoproject.com/en/1.5/topics/db/transactions/#handling-exceptions-within-postgresql-transactions
             sid = transaction.savepoint()
-            DbLink.objects.create(input=src.dbnode, output=self.dbnode,
+            DbLink.objects.create(input=src._dbnode, output=self._dbnode,
                                   label=label, type=link_type.value)
             transaction.savepoint_commit(sid)
         except IntegrityError as e:
@@ -245,25 +285,35 @@ class Node(AbstractNode):
     def _get_db_input_links(self, link_type):
         from aiida.backends.djsite.db.models import DbLink
 
-        link_filter = {'output': self.dbnode}
+        link_filter = {'output': self._dbnode}
         if link_type is not None:
             link_filter['type'] = link_type.value
         return [(i.label, i.input.get_aiida_class()) for i in
                 DbLink.objects.filter(**link_filter).distinct()]
 
-
     def _get_db_output_links(self, link_type):
         from aiida.backends.djsite.db.models import DbLink
 
-        link_filter = {'input': self.dbnode}
+        link_filter = {'input': self._dbnode}
         if link_type is not None:
             link_filter['type'] = link_type.value
         return ((i.label, i.output.get_aiida_class()) for i in
                 DbLink.objects.filter(**link_filter).distinct())
 
+    def get_computer(self):
+        """
+        Get the computer associated to the node.
+
+        :return: the Computer object or None.
+        """
+        if self._dbnode.dbcomputer is None:
+            return None
+        else:
+            return Computer(dbcomputer=self._dbnode.dbcomputer)
+
     def _set_db_computer(self, computer):
         from aiida.backends.djsite.db.models import DbComputer
-        self.dbnode.dbcomputer = DbComputer.get_dbcomputer(computer)
+        self._dbnode.dbcomputer = DbComputer.get_dbcomputer(computer)
 
     def _set_db_attr(self, key, value):
         """
@@ -277,26 +327,26 @@ class Node(AbstractNode):
         """
         from aiida.backends.djsite.db.models import DbAttribute
 
-        DbAttribute.set_value_for_node(self.dbnode, key, value)
+        DbAttribute.set_value_for_node(self._dbnode, key, value)
         self._increment_version_number_db()
 
     def _del_db_attr(self, key):
         from aiida.backends.djsite.db.models import DbAttribute
-        if not DbAttribute.has_key(self.dbnode, key):
+        if not DbAttribute.has_key(self._dbnode, key):
             raise AttributeError("DbAttribute {} does not exist".format(
                 key))
-        DbAttribute.del_value_for_node(self.dbnode, key)
+        DbAttribute.del_value_for_node(self._dbnode, key)
         self._increment_version_number_db()
 
     def _get_db_attr(self, key):
         from aiida.backends.djsite.db.models import DbAttribute
         return DbAttribute.get_value_for_node(
-            dbnode=self.dbnode, key=key)
+            dbnode=self._dbnode, key=key)
 
     def _set_db_extra(self, key, value, exclusive=False):
         from aiida.backends.djsite.db.models import DbExtra
 
-        DbExtra.set_value_for_node(self.dbnode, key, value,
+        DbExtra.set_value_for_node(self._dbnode, key, value,
                                    stop_if_existing=exclusive)
         self._increment_version_number_db()
 
@@ -306,27 +356,27 @@ class Node(AbstractNode):
 
     def _get_db_extra(self, key, *args):
         from aiida.backends.djsite.db.models import DbExtra
-        return DbExtra.get_value_for_node(dbnode=self.dbnode,
+        return DbExtra.get_value_for_node(dbnode=self._dbnode,
                                           key=key)
 
     def _del_db_extra(self, key):
         from aiida.backends.djsite.db.models import DbExtra
-        if not DbExtra.has_key(self.dbnode, key):
+        if not DbExtra.has_key(self._dbnode, key):
             raise AttributeError("DbExtra {} does not exist".format(
                 key))
-        return DbExtra.del_value_for_node(self.dbnode, key)
+        return DbExtra.del_value_for_node(self._dbnode, key)
         self._increment_version_number_db()
 
     def _db_iterextras(self):
         from aiida.backends.djsite.db.models import DbExtra
-        extraslist = DbExtra.list_all_node_elements(self.dbnode)
+        extraslist = DbExtra.list_all_node_elements(self._dbnode)
         for e in extraslist:
             yield (e.key, e.getvalue())
 
     def _db_iterattrs(self):
         from aiida.backends.djsite.db.models import DbAttribute
 
-        all_attrs = DbAttribute.get_all_values_for_node(self.dbnode)
+        all_attrs = DbAttribute.get_all_values_for_node(self._dbnode)
         for attr in all_attrs:
             yield (attr, all_attrs[attr])
 
@@ -336,18 +386,20 @@ class Node(AbstractNode):
         # calling iterattrs from here, because iterattrs is slow on each call
         # since it has to call .getvalue(). To improve!
         from aiida.backends.djsite.db.models import DbAttribute
-        attrlist = DbAttribute.list_all_node_elements(self.dbnode)
+        attrlist = DbAttribute.list_all_node_elements(self._dbnode)
         for attr in attrlist:
             yield attr.key
 
     def add_comment(self, content, user=None):
         from aiida.backends.djsite.db.models import DbComment
-        if self._to_be_stored:
+        from . import user as users
+
+        if not self.is_stored:
             raise ModificationNotAllowed("Comments can be added only after "
                                          "storing the node")
 
         DbComment.objects.create(dbnode=self._dbnode,
-                                 user=user,
+                                 user=user.dbuser,
                                  content=content)
 
     def get_comment_obj(self, id=None, user=None):
@@ -437,11 +489,11 @@ class Node(AbstractNode):
 
     def copy(self, **kwargs):
         newobject = self.__class__()
-        newobject.dbnode.type = self.dbnode.type  # Inherit type
-        newobject.dbnode.label = self.dbnode.label  # Inherit label
+        newobject._dbnode.type = self._dbnode.type  # Inherit type
+        newobject.label = self.label  # Inherit label
         # TODO: add to the description the fact that this was a copy?
-        newobject.dbnode.description = self.dbnode.description  # Inherit description
-        newobject.dbnode.dbcomputer = self.dbnode.dbcomputer  # Inherit computer
+        newobject.description = self.description  # Inherit description
+        newobject._dbnode.dbcomputer = self._dbnode.dbcomputer  # Inherit computer
 
         for k, v in self.iterattrs():
             if k != Sealable.SEALED_KEY:
@@ -454,17 +506,21 @@ class Node(AbstractNode):
 
     @property
     def uuid(self):
-        return unicode(self.dbnode.uuid)
+        return unicode(self._dbnode.uuid)
 
     @property
     def id(self):
-        return self.dbnode.id
+        return self._dbnode.id
+
+    @property
+    def process_type(self):
+        return self._dbnode.process_type
 
     @property
     def dbnode(self):
         # I also update the internal _dbnode variable, if it was saved
         # from aiida.backends.djsite.db.models import DbNode
-        #        if not self._to_be_stored:
+        #        if self.is_stored:
         #            self._dbnode = DbNode.objects.get(pk=self._dbnode.pk)
         return self._dbnode
 
@@ -494,6 +550,12 @@ class Node(AbstractNode):
 
         return self
 
+    def get_user(self):
+        return self._backend.users._from_dbmodel(self._dbnode.user)
+
+    def set_user(self, user):
+        type_check(user, users.DjangoUser)
+        self._dbnode.user = user.dbuser
 
     def _store_cached_input_links(self, with_transaction=True):
         """
@@ -523,7 +585,7 @@ class Node(AbstractNode):
         else:
             context_man = EmptyContextManager()
 
-        if self._to_be_stored:
+        if not self.is_stored:
             raise ModificationNotAllowed(
                 "Node with pk= {} is not stored yet".format(self.pk))
 
@@ -594,7 +656,7 @@ class Node(AbstractNode):
                 self._dbnode.save()
                 # Save its attributes 'manually' without incrementing
                 # the version for each add.
-                DbAttribute.reset_values_for_node(self.dbnode,
+                DbAttribute.reset_values_for_node(self._dbnode,
                                                   attributes=self._attrs_cache,
                                                   with_transaction=False)
                 # This should not be used anymore: I delete it to
@@ -619,6 +681,6 @@ class Node(AbstractNode):
 
         from aiida.backends.djsite.db.models import DbExtra
         # I store the hash without cleaning and without incrementing the nodeversion number
-        DbExtra.set_value_for_node(self.dbnode, _HASH_EXTRA_KEY, self.get_hash())
+        DbExtra.set_value_for_node(self._dbnode, _HASH_EXTRA_KEY, self.get_hash())
 
         return self

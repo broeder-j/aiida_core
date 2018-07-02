@@ -9,12 +9,11 @@
 ###########################################################################
 import fastentrypoints
 import re
+import sys
+from distutils.version import StrictVersion
 from os import path
 from setuptools import setup, find_packages
 from setup_requirements import install_requires, extras_require
-
-
-
 
 if __name__ == '__main__':
     # Get the version number
@@ -23,6 +22,21 @@ if __name__ == '__main__':
     with open(fname) as aiida_init:
         match_expr = "__version__[^'\"]+(['\"])([^'\"]+)"
         aiida_version = re.search(match_expr, aiida_init.read()).group(2).strip()
+
+    # Ensure that pip is installed and the version is at least 10.0.0, which is required for the build process
+    try:
+        import pip
+    except ImportError:
+        print 'Could not import pip, which is required for installation'
+        sys.exit(1)
+
+    PIP_REQUIRED_VERSION = '10.0.0'
+    required_version = StrictVersion(PIP_REQUIRED_VERSION)
+    installed_version = StrictVersion(pip.__version__)
+
+    if installed_version < required_version:
+        print 'The installation requires pip>={}, whereas currently {} is installed'.format(required_version, installed_version)
+        sys.exit(1)
 
     bin_folder = path.join(aiida_folder, 'bin')
     setup(
@@ -41,10 +55,6 @@ if __name__ == '__main__':
         install_requires=install_requires,
         extras_require=extras_require,
         packages=find_packages(),
-        # Don't forget to install it as well (by adding to the install_requires)
-        setup_requires=[
-            'reentry >= 1.0.2',
-        ],
         reentry_register=True,
         entry_points={
             'console_scripts': [
@@ -53,9 +63,25 @@ if __name__ == '__main__':
             ],
             # following are AiiDA plugin entry points:
             'aiida.calculations': [
+                'calculation = aiida.orm.calculation:Calculation',
+                'function = aiida.orm.calculation.function:FunctionCalculation',
+                'inline = aiida.orm.calculation.inline:InlineCalculation',
+                'job = aiida.orm.calculation.job:JobCalculation',
+                'work = aiida.orm.calculation.work:WorkCalculation',
+                'simpleplugins.arithmetic.add = aiida.orm.calculation.job.simpleplugins.arithmetic.add:ArithmeticAddCalculation',
                 'simpleplugins.templatereplacer = aiida.orm.calculation.job.simpleplugins.templatereplacer:TemplatereplacerCalculation',
             ],
-            'aiida.data':[
+            'aiida.code': [
+                'code = aiida.orm.code:Code'
+            ],
+            'aiida.data': [
+                'bool = aiida.orm.data.bool:Bool',
+                'float = aiida.orm.data.float:Float',
+                'int = aiida.orm.data.int:Int',
+                'list = aiida.orm.data.list:List',
+                'str = aiida.orm.data.str:Str',
+                'frozendict = aiida.orm.data.frozendict:FrozenDict',
+                'array = aiida.orm.data.array:ArrayData',
                 'array.bands = aiida.orm.data.array.bands:BandsData',
                 'array.kpoints = aiida.orm.data.array.kpoints:KpointsData',
                 'array.projection = aiida.orm.data.array.projection:ProjectionData',
@@ -68,14 +94,21 @@ if __name__ == '__main__':
                 'remote = aiida.orm.data.remote:RemoteData',
                 'singlefile = aiida.orm.data.singlefile:SinglefileData',
                 'structure = aiida.orm.data.structure:StructureData',
-                'upf = aiida.orm.data.upf:UpfData'
+                'upf = aiida.orm.data.upf:UpfData',
+                'orbital = aiida.orm.data.orbital:OrbitalData',
+            ],
+            'aiida.node': [
+                'node = aiida.orm.node:Node'
             ],
             'aiida.cmdline': [],
             'aiida.parsers': [
-                'simpleplugins.templatereplacer.test.doubler = aiida.parsers.simpleplugins.templatereplacer.test:TemplatereplacerDoublerParser',
+                'simpleplugins.arithmetic.add = aiida.parsers.simpleplugins.arithmetic.add:ArithmeticAddParser',
+                'simpleplugins.templatereplacer.doubler = aiida.parsers.simpleplugins.templatereplacer.doubler:TemplatereplacerDoublerParser',
             ],
             'aiida.schedulers': [
                 'direct = aiida.scheduler.plugins.direct:DirectScheduler',
+                'lsf = aiida.scheduler.plugins.lsf:LsfScheduler',
+                'sge = aiida.scheduler.plugins.sge:SgeScheduler',
                 'slurm = aiida.scheduler.plugins.slurm:SlurmScheduler',
                 'pbspro = aiida.scheduler.plugins.pbspro:PbsproScheduler',
                 'torque = aiida.scheduler.plugins.torque:TorqueScheduler',
@@ -84,19 +117,21 @@ if __name__ == '__main__':
                 'ssh = aiida.transport.plugins.ssh:SshTransport',
                 'local = aiida.transport.plugins.local:LocalTransport',
             ],
-            'aiida.workflows': [],
+            'aiida.workflows': [
+            ],
             'aiida.tools.dbexporters': [
                 'tcod = aiida.tools.dbexporters.tcod'
             ],
             'aiida.tests': [],
             'aiida.tools.dbimporters': [
-                'cod = aiida.tools.dbimporters.cod',
-                'icsd = aiida.tools.dbimporters.icsd',
-                'mpod = aiida.tools.dbimporters.mpod',
-                'nninc = aiida.tools.dbimporters.nninc',
-                'oqmd = aiida.tools.dbimporters.oqmd',
-                'pcod = aiida.tools.dbimporters.pcod',
-                'tcod = aiida.tools.dbimporters.tcod'
+                'cod = aiida.tools.dbimporters.plugins.cod:CodDbImporter',
+                'icsd = aiida.tools.dbimporters.plugins.icsd:IcsdDbImporter',
+                'mpod = aiida.tools.dbimporters.plugins.mpod:MpodDbImporter',
+                'mpds = aiida.tools.dbimporters.plugins.mpds:MpdsDbImporter',
+                'nninc = aiida.tools.dbimporters.plugins.nninc:NnincDbImporter',
+                'oqmd = aiida.tools.dbimporters.plugins.oqmd:OqmdDbImporter',
+                'pcod = aiida.tools.dbimporters.plugins.pcod:PcodDbImporter',
+                'tcod = aiida.tools.dbimporters.plugins.tcod:TcodDbImporter'
             ]
         },
         scripts=['bin/runaiida'],

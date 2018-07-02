@@ -8,51 +8,31 @@
 # For further information please visit http://www.aiida.net               #
 ###########################################################################
 """
-Testing tools for related projects like plugins
+Testing tools for related projects like plugins.
 
-Usage (unittest)::
+Fixtures (pytest) and specific test classes & test runners (unittest)
+that set up a complete temporary AiiDA environment for plugin tests.
 
-    import os
+Filesystem:
 
-    MyTestCase(aiida.utils.fixtures.PluginTestCase):
+    * temporary config (``.aiida``) folder
+    * temporary repository folder
 
-        BACKEND = os.environ.get('TEST_BACKEND')
-        # load the backend to be tested from the environment variable
-        # on bash, simply prepend the test command with TEST_BACKEND='django' or TEST_BACKEND='sqlalchemy'
-        # or set the TEST_BACKEND in your CI configuration
+Database:
 
-        def setUp(self):
-            # load my test data
+    * temporary database cluster via the ``pgtest`` package
+    * with aiida database user
+    * with aiida_db database
 
-        # optionally you can extend setUpClass / tearDownClass / tearDown if
-        # needed
+AiiDA:
 
-        def test_my_stuff(self):
-            # run a test
+    * set to use the temporary config folder
+    * create and configure a profile
 
-Usage (pytest)::
-
-    import pytest
-
-    @pytest.fixture(scope='session')
-    def aiida_profile():
-        with aiida.utils.fixtures.fixture_manager() as fixture_mgr:
-            fixture_mgr.create_profile()
-            yield fixture_manager
-
-    @pytest.fixture(scope='function')
-    def test_data(aiida_profile):
-        # load my test data
-        yield
-        fixture_manager.reset_db()
-
-    def test_my_stuff(test_data):
-        # run a test
 """
 import unittest
 import tempfile
 import shutil
-import os
 from os import path
 from contextlib import contextmanager
 
@@ -61,7 +41,6 @@ from pgtest.pgtest import PGTest
 from aiida.control.postgres import Postgres
 from aiida import is_dbenv_loaded
 from aiida.backends.profile import BACKEND_DJANGO, BACKEND_SQLA
-from aiida.utils.capturing import Capturing
 from aiida.common import setup as aiida_cfg
 from aiida.backends import settings as backend_settings
 
@@ -83,7 +62,7 @@ class FixtureManager(object):
     Manage the life cycle of a completely separated and temporary AiiDA environment
 
     * No previously created database of profile is required to run tests using this
-    environment
+      environment
     * Tests using this environment will never pollute the user's work environment
 
     Example::
@@ -104,26 +83,28 @@ class FixtureManager(object):
         fixtures.destroy_all()
         # everything cleaned up
 
-    Unittest Example::
+    Usage (unittest): See the :py:class:`PluginTestCase` and the :py:class:`TestRunner`.
 
-        class PluginTestCase(unittest.TestCase):
-            @classmethod
-            def setUpClass(cls):
-                cls.fixture_manager = FixtureManager()
-                cls.fixture_manager.create_profile()
 
-            def setUp(self):
-                # load your specific test data
+    Usage (pytest)::
 
-            def tearDown(self):
-                cls.fixture_manager.reset_db()
+        import pytest
 
-            @classmethod
-            def tearDownClass(cls):
-                cls.fixture_manager.destroy_all()
+        @pytest.fixture(scope='session')
+        def aiida_profile():
+            with aiida.utils.fixtures.fixture_manager() as fixture_mgr:
+                fixture_mgr.create_profile()
+                yield fixture_manager
 
-            def test_my_plugin(self):
-                # execute tests
+        @pytest.fixture(scope='function')
+        def test_data(aiida_profile):
+            # load my test data
+            yield
+            fixture_manager.reset_db()
+
+        def test_my_stuff(test_data):
+            # run a test
+
 
     """
 
@@ -147,6 +128,18 @@ class FixtureManager(object):
         self._backup = {}
         self._backup['config_dir'] = aiida_cfg.AIIDA_CONFIG_FOLDER
         self._backup['profile'] = backend_settings.AIIDADB_PROFILE
+        self.__backend = None
+
+    @property
+    def _backend(self):
+        """
+        Get the backend
+        """
+        if self.__backend is None:
+            # Lazy load the backend so we don't do it too early (i.e. before load_dbenv())
+            from aiida.orm.backend import construct_backend
+            self.__backend = construct_backend()
+        return self.__backend
 
     def create_db_cluster(self):
         if not self.pg_cluster:
@@ -156,9 +149,7 @@ class FixtureManager(object):
     def create_aiida_db(self):
         """Create the necessary database on the temporary postgres instance"""
         if is_dbenv_loaded():
-            raise FixtureError(
-                'AiiDA dbenv can not be loaded while creating a test db environment'
-            )
+            raise FixtureError('AiiDA dbenv can not be loaded while creating a test db environment')
         if not self.db_params:
             self.create_db_cluster()
         self.postgres = Postgres(interactive=False, quiet=True)
@@ -166,8 +157,7 @@ class FixtureManager(object):
         self.postgres.determine_setup()
         self.db_params = self.postgres.dbinfo
         if not self.postgres.pg_execute:
-            raise FixtureError(
-                'Could not connect to the test postgres instance')
+            raise FixtureError('Could not connect to the test postgres instance')
         self.postgres.create_dbuser(self.db_user, self.db_pass)
         self.postgres.create_db(self.db_user, self.db_name)
         self.__is_running_on_test_db = True
@@ -182,32 +172,25 @@ class FixtureManager(object):
         Warning: the AiiDA dbenv must not be loaded when this is called!
         """
         if is_dbenv_loaded():
-            raise FixtureError(
-                'AiiDA dbenv can not be loaded while creating a test profile')
+            raise FixtureError('AiiDA dbenv can not be loaded while creating a test profile')
         if not self.__is_running_on_test_db:
             self.create_aiida_db()
         from aiida.cmdline.verdilib import setup
         if not self.root_dir:
             self.create_root_dir()
-        print self.root_dir, self.config_dir
+        print(self.root_dir, self.config_dir)
         aiida_cfg.AIIDA_CONFIG_FOLDER = self.config_dir
         backend_settings.AIIDADB_PROFILE = None
         aiida_cfg.create_base_dirs()
         profile_name = 'test_profile'
-        setup(
-            profile=profile_name,
-            only_config=False,
-            non_interactive=True,
-            **self.profile)
-        aiida_cfg.set_default_profile('verdi', profile_name)
-        aiida_cfg.set_default_profile('daemon', profile_name)
+        setup(profile=profile_name, only_config=False, non_interactive=True, **self.profile)
+        aiida_cfg.set_default_profile(profile_name)
         self.__is_running_on_test_profile = True
 
     def reset_db(self):
         """Cleans all data from the database between tests"""
         if not self.__is_running_on_test_profile:
-            raise FixtureError(
-                'No test profile has been set up yet, can not reset the db')
+            raise FixtureError('No test profile has been set up yet, can not reset the db')
         if self.profile_info['backend'] == BACKEND_DJANGO:
             self.__clean_db_django()
         elif self.profile_info['backend'] == BACKEND_SQLA:
@@ -307,8 +290,7 @@ class FixtureManager(object):
     def backend(self, backend):
         valid_backends = [BACKEND_DJANGO, BACKEND_SQLA]
         if backend not in valid_backends:
-            raise ValueError('invalid backend {}, must be one of {}'.format(
-                backend, valid_backends))
+            raise ValueError('invalid backend {}, must be one of {}'.format(backend, valid_backends))
         self.profile_info['backend'] = backend
 
     @property
@@ -383,10 +365,9 @@ class FixtureManager(object):
         """Clean database for sqlalchemy backend"""
         from aiida.backends.sqlalchemy.tests.testbase import SqlAlchemyTests
         from aiida.backends.sqlalchemy import get_scoped_session
-        from aiida.orm import User
 
-        user = User.search_for_users(email=self.email)[0]
-        new_user = User(email=user.email)
+        user = self._backend.users.get(email=self.email)
+        new_user = self._backend.users.create(email=user.email)
         new_user.first_name = user.first_name
         new_user.last_name = user.last_name
         new_user.institution = user.institution
@@ -396,13 +377,13 @@ class FixtureManager(object):
         sqla_testcase.clean_db()
 
         # that deleted our user, we need to recreate it
-        new_user.force_save()
+        new_user.store()
 
     def has_profile_open(self):
         return self.__is_running_on_test_profile
 
 
-_PYTEST_FIXTURE_MANAGER = FixtureManager()
+_GLOBAL_FIXTURE_MANAGER = FixtureManager()
 
 
 @contextmanager
@@ -410,60 +391,81 @@ def fixture_manager():
     """
     Context manager for FixtureManager objects
 
-    Example::
+    Example test runner (unittest)::
 
         with fixture_manager() as fixture_mgr:
-            fixture_mgr.create_profile()
             # ready for tests
         # everything cleaned up
 
-    Example for pytest fixture::
+    Example fixture (pytest)::
 
         def aiida_profile():
             with fixture_manager() as fixture_mgr:
-                fixture_mgr.create_profile()
                 yield fixture_mgr
     """
     try:
-        if not _PYTEST_FIXTURE_MANAGER.has_profile_open():
-            _PYTEST_FIXTURE_MANAGER.create_profile()
-        yield _PYTEST_FIXTURE_MANAGER
+        if not _GLOBAL_FIXTURE_MANAGER.has_profile_open():
+            _GLOBAL_FIXTURE_MANAGER.create_profile()
+        yield _GLOBAL_FIXTURE_MANAGER
     finally:
-        _PYTEST_FIXTURE_MANAGER.destroy_all()
+        _GLOBAL_FIXTURE_MANAGER.destroy_all()
 
 
 class PluginTestCase(unittest.TestCase):
     """
-    Set up a complete temporary AiiDA environment for plugin tests
+    Set up a complete temporary AiiDA environment for plugin tests.
 
-    Filesystem:
+    Note: This test class needs to be run through the :py:class:`TestRunner`
+    and will **not** work simply with `python -m unittest discover`.
 
-        * temporary config (``.aiida``) folder
-        * temporary repository folder
+    Usage example::
 
-    Database:
+        MyTestCase(aiida.utils.fixtures.PluginTestCase):
 
-        * temporary database cluster via the ``pgtest`` package
-        * with aiida database user
-        * with aiida_db database
+            def setUp(self):
+                # load my test data
 
-    AiiDA:
+            # optionally extend setUpClass / tearDownClass / tearDown if needed
 
-        * set to use the temporary config folder
-        * create and configure a profile
+            def test_my_plugin(self):
+                # execute tests
     """
-    BACKEND = os.environ.get('TEST_BACKEND')
 
     @classmethod
     def setUpClass(cls):
-        cls.fixture_manager = FixtureManager()
-        cls.fixture_manager.backend = cls.BACKEND
-        with Capturing():
-            cls.fixture_manager.create_profile()
+        cls.fixture_manager = _GLOBAL_FIXTURE_MANAGER
+        if not cls.fixture_manager.has_profile_open():
+            raise ValueError(
+                "Fixture mananger has no open profile. Please use aiida.utils.fixtures.TestRunner to run these tests.")
 
     def tearDown(self):
         self.fixture_manager.reset_db()
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.fixture_manager.destroy_all()
+
+class TestRunner(unittest.runner.TextTestRunner):
+    """
+    Testrunner for unit tests using the fixture manager.
+
+    Usage example::
+
+        import unittest
+        from aiida.utils.fixtures import TestRunner
+
+        tests = unittest.defaultTestLoader.discover('.')
+        TestRunner().run(tests)
+
+    """
+
+    # pylint: disable=arguments-differ
+    def run(self, suite, backend=BACKEND_DJANGO):
+        """
+        Run tests using fixture manager for specified backend.
+
+        :param tests: A suite of tests, as returned e.g. by :py:meth:`unittest.TestLoader.discover`
+        :param backend: Database backend to be used.
+        """
+        from aiida.utils.capturing import Capturing
+        with Capturing():
+            with fixture_manager() as manager:
+                manager.backend = backend
+                super(TestRunner, self).run(suite)

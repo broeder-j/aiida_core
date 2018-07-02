@@ -9,16 +9,17 @@
 ###########################################################################
 
 
-
 try:
     import ultrajson as json
     from functools import partial
+
     # double_precision = 15, to replicate what PostgreSQL numerical type is
     # using
     json_dumps = partial(json.dumps, double_precision=15)
     json_loads = partial(json.loads, precise_float=True)
 except ImportError:
     import json
+
     json_dumps = json.dumps
     json_loads = json.loads
 
@@ -41,11 +42,6 @@ from aiida.common.setup import (get_profile_config)
 ALEMBIC_FILENAME = "alembic.ini"
 ALEMBIC_REL_PATH = "migrations"
 
-# def is_dbenv_loaded():
-#     """
-#     Return if the environment has already been loaded or not.
-#     """
-#     return sa.get_scoped_session() is not None
 
 def recreate_after_fork(engine):
     """
@@ -56,6 +52,7 @@ def recreate_after_fork(engine):
     """
     sa.engine.dispose()
     sa.scopedsessionclass = scoped_session(sessionmaker(bind=sa.engine, expire_on_commit=True))
+
 
 def reset_session(config):
     """
@@ -79,75 +76,27 @@ def reset_session(config):
     register_after_fork(sa.engine, recreate_after_fork)
 
 
-def load_dbenv(process=None, profile=None, connection=None):
+def load_dbenv(profile=None, connection=None):
     """
     Load the database environment (SQLAlchemy) and perform some checks.
 
-    :param process: the process that is calling this command ('verdi', or
-        'daemon')
     :param profile: the string with the profile to use. If not specified,
         use the default one specified in the AiiDA configuration file.
     """
-    _load_dbenv_noschemacheck(process=process, profile=profile)
+    _load_dbenv_noschemacheck(profile=profile)
     # Check schema version and the existence of the needed tables
     check_schema_version()
 
 
-def _load_dbenv_noschemacheck(process=None, profile=None, connection=None):
+def _load_dbenv_noschemacheck(profile=None, connection=None):
     """
     Load the SQLAlchemy database.
     """
     config = get_profile_config(settings.AIIDADB_PROFILE)
     reset_session(config)
 
+
 _aiida_autouser_cache = None
-
-
-def get_automatic_user():
-    # global _aiida_autouser_cache
-
-    # if _aiida_autouser_cache is not None:
-    #     return _aiida_autouser_cache
-
-    from aiida.backends.sqlalchemy.models.user import DbUser
-    from aiida.common.utils import get_configured_user_email
-
-    email = get_configured_user_email()
-
-    _aiida_autouser_cache = DbUser.query.filter(DbUser.email == email).first()
-
-    if not _aiida_autouser_cache:
-        raise ConfigurationError("No aiida user with email {}".format(
-            email))
-    return _aiida_autouser_cache
-
-
-def get_daemon_user():
-    """
-    Return the username (email) of the user that should run the daemon,
-    or the default AiiDA user in case no explicit configuration is found
-    in the DbSetting table.
-    """
-    from aiida.backends.sqlalchemy.globalsettings import get_global_setting
-    from aiida.common.setup import DEFAULT_AIIDA_USER
-
-    try:
-        return get_global_setting('daemon|user')
-    except KeyError:
-        return DEFAULT_AIIDA_USER
-
-
-def set_daemon_user(user_email):
-    """
-    Return the username (email) of the user that should run the daemon,
-    or the default AiiDA user in case no explicit configuration is found
-    in the DbSetting table.
-    """
-    from aiida.backends.sqlalchemy.globalsettings import set_global_setting
-
-    set_global_setting("daemon|user", user_email,
-                       description="The only user that is allowed to run the "
-                                   "AiiDA daemon on this DB instance")
 
 
 def dumps_json(d):
@@ -165,6 +114,7 @@ def dumps_json(d):
         return v
 
     return json_dumps(f(d))
+
 
 date_reg = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+(\+\d{2}:\d{2})?$')
 
@@ -195,7 +145,6 @@ def loads_json(s):
         return d
 
     return f(ret)
-
 
 
 # XXX the code here isn't different from the one use in Django. We may be able
@@ -419,6 +368,13 @@ def check_schema_version(force_migration=False, alembic_cfg=None):
     import sys
     from aiida.common.utils import query_yes_no
     from aiida.backends import sqlalchemy as sa
+    from aiida.backends.settings import IN_DOC_MODE
+
+    # Early exit if we compile the documentation since the schema
+    # check is not needed and it creates problems with the sqlalchemy
+    # migrations
+    if IN_DOC_MODE:
+        return
 
     # If an alembic configuration file is given then use that one.
     if alembic_cfg is None:
@@ -467,6 +423,9 @@ def get_db_schema_version(config):
     :param config: The alembic configuration.
     :return: The version of the database.
     """
+    if config is None:
+        return None
+
     script = ScriptDirectory.from_config(config)
 
     def get_db_version(rev, _):
@@ -478,9 +437,9 @@ def get_db_schema_version(config):
         return []
 
     with EnvironmentContext(
-        config,
-        script,
-        fn=get_db_version
+            config,
+            script,
+            fn=get_db_version
     ):
         script.run_env()
         return config.attributes['rev']
