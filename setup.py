@@ -34,7 +34,7 @@ if __name__ == '__main__':
         print('Could not import pip, which is required for installation')
         sys.exit(1)
 
-    PIP_REQUIRED_VERSION = '10.0.0'
+    PIP_REQUIRED_VERSION = '9.0.0'
     required_version = StrictVersion(PIP_REQUIRED_VERSION)
     installed_version = StrictVersion(pip.__version__)
 
